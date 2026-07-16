@@ -33,13 +33,17 @@ test("all 20 visualizers produce a sorted result", () => {
 });
 
 test("the product contains the complete character roster and GitHub Pages workflow", async () => {
-  const [algorithms, workflow, page] = await Promise.all([
+  const [algorithms, workflow, page, lab] = await Promise.all([
     readFile(new URL("../lib/algorithms.ts", import.meta.url), "utf8"),
     readFile(new URL("../.github/workflows/deploy-pages.yml", import.meta.url), "utf8"),
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/SortLab.tsx", import.meta.url), "utf8"),
   ]);
   assert.equal((algorithms.match(/id: "/g) ?? []).length, 20);
   assert.match(workflow, /actions\/deploy-pages@v4/);
   assert.match(page, /SortLab/);
   assert.doesNotMatch(page, /codex-preview|SkeletonPreview/);
+  assert.doesNotMatch(lab, /Math\.max\(2\.5/);
+  assert.match(lab, /height: `\$\{\(value \/ maxValue\) \* 100\}%`/);
+  assert.match(lab, /playCompletionChime/);
 });
