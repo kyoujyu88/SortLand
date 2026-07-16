@@ -43,6 +43,39 @@ function Metric({ label, value, unit }: { label: string; value: string | number;
   );
 }
 
+function strikeSteelPan(
+  context: AudioContext,
+  frequency: number,
+  start: number,
+  volume = 0.024,
+  duration = 0.34,
+  extraOutputs: AudioNode[] = [],
+) {
+  const partials = [
+    { ratio: 1, level: 1, decay: 1 },
+    { ratio: 2.01, level: 0.38, decay: 0.72 },
+    { ratio: 3.98, level: 0.14, decay: 0.46 },
+  ];
+
+  partials.forEach(({ ratio, level, decay }) => {
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    const pitch = frequency * ratio;
+    const end = start + duration * decay;
+    oscillator.type = "sine";
+    oscillator.frequency.setValueAtTime(pitch * 1.012, start);
+    oscillator.frequency.exponentialRampToValueAtTime(pitch, start + 0.018);
+    gain.gain.setValueAtTime(0.0001, start);
+    gain.gain.exponentialRampToValueAtTime(volume * level, start + 0.003);
+    gain.gain.exponentialRampToValueAtTime(0.0001, end);
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+    extraOutputs.forEach((output) => gain.connect(output));
+    oscillator.start(start);
+    oscillator.stop(end + 0.025);
+  });
+}
+
 export default function SortLab() {
   const [selectedId, setSelectedId] = useState("quick");
   const [filter, setFilter] = useState<Filter>("all");
@@ -103,7 +136,7 @@ export default function SortLab() {
   const playTone = useCallback((value: number) => {
     if (!soundRef.current) return;
     const nowMs = performance.now();
-    if (nowMs - lastToneRef.current < 18) return;
+    if (nowMs - lastToneRef.current < 38) return;
     lastToneRef.current = nowMs;
     const context = getAudioContext();
     if (!context) return;
@@ -113,21 +146,7 @@ export default function SortLab() {
       Math.floor(((value - 1) / Math.max(1, count - 1)) * pentatonic.length),
     );
     const frequency = 293.66 * 2 ** (pentatonic[noteIndex] / 12);
-    const now = context.currentTime;
-    const makePluck = (type: OscillatorType, pitch: number, volume: number, length: number) => {
-      const oscillator = context.createOscillator();
-      const gain = context.createGain();
-      oscillator.type = type;
-      oscillator.frequency.setValueAtTime(pitch, now);
-      gain.gain.setValueAtTime(0.0001, now);
-      gain.gain.exponentialRampToValueAtTime(volume, now + 0.004);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + length);
-      oscillator.connect(gain).connect(context.destination);
-      oscillator.start(now);
-      oscillator.stop(now + length + 0.015);
-    };
-    makePluck("sine", frequency, 0.026, 0.085);
-    makePluck("triangle", frequency * 2, 0.006, 0.045);
+    strikeSteelPan(context, frequency, context.currentTime);
   }, [count, getAudioContext]);
 
   const playCompletionChime = useCallback(() => {
@@ -140,21 +159,16 @@ export default function SortLab() {
     delay.delayTime.value = 0.18;
     echo.gain.value = 0.14;
     delay.connect(echo).connect(context.destination);
-    const notes = [523.25, 659.25, 783.99, 1046.5, 1174.66];
+    const notes = [587.33, 739.99, 880, 1174.66, 1318.51];
     notes.forEach((frequency, index) => {
-      const start = now + index * 0.095;
-      const oscillator = context.createOscillator();
-      const gain = context.createGain();
-      oscillator.type = "sine";
-      oscillator.frequency.setValueAtTime(frequency, start);
-      gain.gain.setValueAtTime(0.0001, start);
-      gain.gain.exponentialRampToValueAtTime(index === notes.length - 1 ? 0.052 : 0.036, start + 0.012);
-      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.72);
-      oscillator.connect(gain);
-      gain.connect(context.destination);
-      gain.connect(delay);
-      oscillator.start(start);
-      oscillator.stop(start + 0.75);
+      strikeSteelPan(
+        context,
+        frequency,
+        now + index * 0.11,
+        index === notes.length - 1 ? 0.045 : 0.034,
+        0.82,
+        [delay],
+      );
     });
   }, [getAudioContext]);
 
@@ -433,7 +447,7 @@ export default function SortLab() {
               </label>
               <button className={`sound-toggle ${sound ? "is-on" : ""}`} onClick={() => setSound((value) => !value)} aria-pressed={sound}>
                 <span className="sound-icon" aria-hidden="true">{sound ? "♪" : "×"}</span>
-                <span><b>サウンド</b><small>{sound ? "ON・軽い木琴のような音" : "OFF・ミュート中"}</small></span>
+                <span><b>サウンド</b><small>{sound ? "ON・軽やかなスチールドラム" : "OFF・ミュート中"}</small></span>
                 <i />
               </button>
             </div>

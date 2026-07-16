@@ -33,11 +33,12 @@ test("all 20 visualizers produce a sorted result", () => {
 });
 
 test("the product contains the complete character roster and GitHub Pages workflow", async () => {
-  const [algorithms, workflow, page, lab] = await Promise.all([
+  const [algorithms, workflow, page, lab, styles] = await Promise.all([
     readFile(new URL("../lib/algorithms.ts", import.meta.url), "utf8"),
     readFile(new URL("../.github/workflows/deploy-pages.yml", import.meta.url), "utf8"),
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/SortLab.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
   ]);
   assert.equal((algorithms.match(/id: "/g) ?? []).length, 20);
   assert.match(workflow, /actions\/deploy-pages@v4/);
@@ -46,4 +47,7 @@ test("the product contains the complete character roster and GitHub Pages workfl
   assert.doesNotMatch(lab, /Math\.max\(2\.5/);
   assert.match(lab, /height: `\$\{\(value \/ maxValue\) \* 100\}%`/);
   assert.match(lab, /playCompletionChime/);
+  assert.match(lab, /strikeSteelPan/);
+  assert.match(styles, /\.character-icon\s*\{[^}]*display:\s*block/s);
+  assert.match(styles, /grid-template-columns:\s*minmax\(0, 1fr\) 100px/);
 });

@@ -29,6 +29,7 @@ body {
   color: var(--ink);
   font-family: "Hiragino Sans", "Yu Gothic UI", "Meiryo", system-ui, sans-serif;
   min-height: 100vh;
+  overflow-x: hidden;
 }
 
 button,
@@ -293,6 +294,7 @@ input:focus-visible {
 .character-icon {
   background-repeat: no-repeat;
   background-size: 500% 400%;
+  display: block;
   flex: 0 0 auto;
 }
 
@@ -306,8 +308,8 @@ input:focus-visible {
 .character-icon--large {
   border-radius: 14px;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16), 0 12px 32px rgba(0, 0, 0, 0.32);
-  height: 112px;
-  width: 112px;
+  height: 132px;
+  width: 132px;
 }
 
 .character-card__copy {
@@ -375,6 +377,9 @@ input:focus-visible {
 }
 
 .hero-character {
+  align-items: center;
+  display: flex;
+  justify-content: center;
   position: relative;
   z-index: 1;
 }
@@ -895,15 +900,17 @@ footer small { font-family: ui-monospace, monospace; font-size: 7px; letter-spac
   .github-link { font-size: 0; padding: 8px 10px; }
   .github-link span { font-size: 14px; }
   .workspace { display: block; }
-  .algorithm-panel { background: rgba(6, 16, 23, 0.95); border-bottom: 1px solid var(--line); border-right: 0; max-height: none; overflow: visible; padding: 18px 16px; position: static; }
+  .algorithm-panel { background: rgba(6, 16, 23, 0.95); border-bottom: 1px solid var(--line); border-right: 0; max-height: none; overflow: hidden; padding: 18px 16px; position: static; }
   .panel-heading { padding-bottom: 12px; }
   .character-grid { display: flex; gap: 8px; overflow-x: auto; padding: 1px 1px 8px; scroll-snap-type: x mandatory; }
   .character-card { flex: 0 0 122px; scroll-snap-align: start; }
   .filter-tabs { max-width: 460px; }
   .lab { padding: 16px 14px 40px; }
-  .algorithm-hero { grid-template-columns: auto 1fr; padding: 16px; }
+  .algorithm-hero { align-items: center; gap: 12px; grid-template-columns: minmax(0, 1fr) 118px; min-height: 184px; padding: 18px; }
+  .hero-copy { grid-column: 1; grid-row: 1; min-width: 0; }
+  .hero-character { grid-column: 2; grid-row: 1; justify-self: end; }
   .hero-status { display: none; }
-  .character-icon--large { height: 84px; width: 84px; }
+  .character-icon--large { border-radius: 16px; height: 118px; width: 118px; }
   .hero-copy > p:last-of-type { display: none; }
   .hero-copy h1 { font-size: 25px; }
   .hero-copy .tagline { font-size: 11px; }
@@ -921,20 +928,31 @@ footer small { font-family: ui-monospace, monospace; font-size: 7px; letter-spac
   .brand strong { font-size: 17px; }
   .brand-mark { height: 36px; width: 36px; }
   .topbar { grid-template-columns: 1fr auto; }
-  .algorithm-hero { align-items: start; gap: 13px; }
-  .character-icon--large { border-radius: 10px; height: 70px; width: 70px; }
+  .algorithm-panel { padding: 16px 12px 14px; }
+  .filter-tabs { overflow-x: auto; width: 100%; }
+  .character-grid { margin-right: -12px; padding-right: 12px; }
+  .lab { padding: 12px 10px 36px; }
+  .algorithm-hero { align-items: center; gap: 8px; grid-template-columns: minmax(0, 1fr) 100px; min-height: 168px; padding: 14px; }
+  .hero-character { margin-right: -2px; }
+  .character-icon--large { border-radius: 14px; height: 100px; width: 100px; }
   .hero-kicker { font-size: 7px; }
-  .hero-copy h1 { font-size: 21px; margin-top: 5px; }
+  .hero-kicker i { display: none; }
+  .hero-copy h1 { font-size: clamp(19px, 5.8vw, 23px); line-height: 1.25; margin-top: 5px; overflow-wrap: anywhere; }
   .hero-copy .tagline { line-height: 1.5; }
   .hero-badges { display: none; }
   .metrics-row { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
-  .metric { border-bottom: 1px solid var(--line); min-width: 0; padding: 5px 10px; }
+  .visualizer-toolbar { padding: 10px 12px; }
+  .metric { border-bottom: 1px solid var(--line); min-height: 48px; min-width: 0; padding: 7px 10px; }
+  .metric:first-child { padding-left: 10px; }
   .metric:nth-child(2) { border-right: 0; }
   .metric:nth-child(3), .metric:nth-child(4) { border-bottom: 0; }
-  .bar-stage { height: 320px; }
+  .bar-stage { height: min(76vw, 320px); min-height: 260px; padding-bottom: 16px; padding-top: 20px; }
+  .grid-lines { bottom: 16px; top: 20px; }
   .legend { display: none; }
-  .primary-controls { display: grid; grid-template-columns: 1fr 1fr auto auto; }
-  .control-button { padding: 0 10px; }
+  .control-deck { gap: 16px; padding: 12px; }
+  .primary-controls { display: grid; gap: 6px; grid-template-columns: minmax(74px, 1fr) minmax(74px, 1fr) 44px 44px; width: 100%; }
+  .control-button { min-width: 0; padding: 0 8px; }
+  .control-button--icon { padding: 0; width: 44px; }
   .control-button--primary { min-width: 0; }
   .settings-grid { grid-template-columns: 1fr; }
   .sound-toggle { grid-column: auto; }
