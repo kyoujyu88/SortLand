@@ -11,7 +11,7 @@ export const metadata: Metadata = {
     default: "SortLand — ソートアルゴリズム可視化ラボ",
     template: "%s | SortLand",
   },
-  description: "20種類のソートアルゴリズムを、棒グラフ・音・擬人化キャラクターと一緒に観察できる学習サイト。",
+  description: "20種類のソートアルゴリズムを、棒グラフ・軽やかな音・女の子キャラクターと一緒に観察できる学習サイト。",
   keywords: ["ソート", "アルゴリズム", "可視化", "プログラミング学習", "sorting visualizer"],
   icons: {
     icon: `${basePath}/favicon.png`,
@@ -37,8 +37,8 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  themeColor: "#061017",
-  colorScheme: "dark",
+  themeColor: "#f6f1e8",
+  colorScheme: "light",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
