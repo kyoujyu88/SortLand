@@ -1,7 +1,8 @@
 export type SortOperation =
   | { type: "compare"; indices: [number, number] }
   | { type: "swap"; indices: [number, number] }
-  | { type: "write"; index: number; value: number };
+  | { type: "write"; index: number; value: number }
+  | { type: "shuffle"; values: number[]; comparisons: number };
 
 type SortRecorder = {
   array: number[];
@@ -9,6 +10,7 @@ type SortRecorder = {
   compare: (a: number, b: number) => void;
   swap: (a: number, b: number) => void;
   write: (index: number, value: number) => void;
+  shuffle: (values: number[], comparisons: number) => void;
 };
 
 function createRecorder(input: number[]): SortRecorder {
@@ -29,6 +31,10 @@ function createRecorder(input: number[]): SortRecorder {
     write(index, value) {
       array[index] = value;
       operations.push({ type: "write", index, value });
+    },
+    shuffle(values, comparisons) {
+      array.splice(0, array.length, ...values);
+      operations.push({ type: "shuffle", values: [...values], comparisons });
     },
   };
 }
@@ -362,7 +368,7 @@ function timSort(r: SortRecorder) {
 }
 
 function strandSort(r: SortRecorder) {
-  let remaining = [...r.array];
+  const remaining = [...r.array];
   let result: number[] = [];
   while (remaining.length) {
     const strand = [remaining.shift()!];
@@ -457,6 +463,187 @@ function introSort(r: SortRecorder) {
   sort(0, a.length - 1, Math.max(1, Math.floor(Math.log2(a.length)) * 2));
 }
 
+function bogoSort(r: SortRecorder) {
+  const { array: a } = r;
+  let seed = a.reduce((value, item, index) => (
+    Math.imul(value ^ (item + index * 97), 1664525) + 1013904223
+  ) >>> 0, 0x9e3779b9);
+  const random = () => {
+    seed = (seed + 0x6d2b79f5) >>> 0;
+    let value = seed;
+    value = Math.imul(value ^ (value >>> 15), value | 1);
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+  };
+  const inspect = (values: number[]) => {
+    let comparisons = 0;
+    for (let i = 1; i < values.length; i++) {
+      comparisons++;
+      if (values[i - 1] > values[i]) return { sorted: false, comparisons };
+    }
+    return { sorted: true, comparisons };
+  };
+  let factorial = 1;
+  for (let value = 2; value <= a.length; value++) factorial *= value;
+  const maxAttempts = Math.min(12_000, Math.max(400, factorial * 8));
+  let result = inspect(a);
+
+  for (let attempt = 0; !result.sorted && attempt < maxAttempts; attempt++) {
+    const next = [...a];
+    for (let i = next.length - 1; i > 0; i--) {
+      const j = Math.floor(random() * (i + 1));
+      [next[i], next[j]] = [next[j], next[i]];
+    }
+    result = inspect(next);
+    r.shuffle(next, result.comparisons);
+  }
+
+  if (!result.sorted) insertionSort(r);
+}
+
+function bitonicSort(r: SortRecorder) {
+  const { array: a } = r;
+  for (let size = 2; size <= a.length; size *= 2) {
+    for (let stride = size / 2; stride > 0; stride /= 2) {
+      for (let i = 0; i < a.length; i++) {
+        const partner = i ^ stride;
+        if (partner <= i) continue;
+        const ascending = (i & size) === 0;
+        r.compare(i, partner);
+        if ((ascending && a[i] > a[partner]) || (!ascending && a[i] < a[partner])) {
+          r.swap(i, partner);
+        }
+      }
+    }
+  }
+}
+
+function circleSort(r: SortRecorder) {
+  const { array: a } = r;
+  const pass = (low: number, high: number): boolean => {
+    if (low >= high) return false;
+    const originalLow = low;
+    const originalHigh = high;
+    let moved = false;
+
+    while (low < high) {
+      r.compare(low, high);
+      if (a[low] > a[high]) {
+        r.swap(low, high);
+        moved = true;
+      }
+      low++;
+      high--;
+    }
+    if (low === high && high + 1 <= originalHigh) {
+      r.compare(low, high + 1);
+      if (a[low] > a[high + 1]) {
+        r.swap(low, high + 1);
+        moved = true;
+      }
+    }
+
+    const middle = Math.floor((originalHigh - originalLow) / 2);
+    const leftMoved = pass(originalLow, originalLow + middle);
+    const rightMoved = pass(originalLow + middle + 1, originalHigh);
+    return moved || leftMoved || rightMoved;
+  };
+
+  while (pass(0, a.length - 1)) {
+    // Repeat the recursive outside-in comparisons until a pass makes no swaps.
+  }
+}
+
+function beadSort(r: SortRecorder) {
+  const original = [...r.array];
+  const heights = new Array(original.length).fill(0);
+  const max = Math.max(...original, 0);
+
+  for (let level = 1; level <= max; level++) {
+    let beadCount = 0;
+    for (const value of original) if (value >= level) beadCount++;
+    for (let row = original.length - beadCount; row < original.length; row++) {
+      heights[row]++;
+      r.write(row, heights[row]);
+    }
+  }
+}
+
+function tournamentSort(r: SortRecorder) {
+  const values = [...r.array];
+  let leafCount = 1;
+  while (leafCount < values.length) leafCount *= 2;
+  const tree = new Array(leafCount * 2).fill(-1);
+  for (let i = 0; i < values.length; i++) tree[leafCount + i] = i;
+
+  const winner = (left: number, right: number) => {
+    if (left < 0) return right;
+    if (right < 0) return left;
+    r.compare(left, right);
+    return values[left] <= values[right] ? left : right;
+  };
+  for (let node = leafCount - 1; node > 0; node--) {
+    tree[node] = winner(tree[node * 2], tree[node * 2 + 1]);
+  }
+
+  for (let output = 0; output < values.length; output++) {
+    const selected = tree[1];
+    r.write(output, values[selected]);
+    values[selected] = Number.POSITIVE_INFINITY;
+    let node = leafCount + selected;
+    while (node > 1) {
+      node = Math.floor(node / 2);
+      tree[node] = winner(tree[node * 2], tree[node * 2 + 1]);
+    }
+  }
+}
+
+type TreeNode = {
+  value: number;
+  sourceIndex: number;
+  left: TreeNode | null;
+  right: TreeNode | null;
+};
+
+function treeSort(r: SortRecorder) {
+  const input = [...r.array];
+  let root: TreeNode | null = null;
+
+  input.forEach((value, sourceIndex) => {
+    const node: TreeNode = { value, sourceIndex, left: null, right: null };
+    if (!root) {
+      root = node;
+      return;
+    }
+    let current = root;
+    while (true) {
+      r.compare(sourceIndex, current.sourceIndex);
+      if (value < current.value) {
+        if (!current.left) {
+          current.left = node;
+          break;
+        }
+        current = current.left;
+      } else {
+        if (!current.right) {
+          current.right = node;
+          break;
+        }
+        current = current.right;
+      }
+    }
+  });
+
+  let output = 0;
+  const traverse = (node: TreeNode | null) => {
+    if (!node) return;
+    traverse(node.left);
+    r.write(output++, node.value);
+    traverse(node.right);
+  };
+  traverse(root);
+}
+
 export function buildSortOperations(id: string, input: number[]): SortOperation[] {
   const recorder = createRecorder(input);
   const algorithms: Record<string, (r: SortRecorder) => void> = {
@@ -480,6 +667,12 @@ export function buildSortOperations(id: string, input: number[]): SortOperation[
     strand: strandSort,
     stooge: stoogeSort,
     intro: introSort,
+    bogo: bogoSort,
+    bitonic: bitonicSort,
+    circle: circleSort,
+    bead: beadSort,
+    tournament: tournamentSort,
+    tree: treeSort,
   };
   (algorithms[id] ?? bubbleSort)(recorder);
   return recorder.operations;

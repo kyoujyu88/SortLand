@@ -9,25 +9,49 @@ type Filter = "all" | AlgorithmCategory;
 
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 
-function shuffledValues(size: number) {
+function shuffledValues(size: number, random: () => number = Math.random) {
   const values = Array.from({ length: size }, (_, index) => index + 1);
   for (let i = values.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = Math.floor(random() * (i + 1));
     [values[i], values[j]] = [values[j], values[i]];
   }
   return values;
 }
 
+function initialValues(size: number) {
+  let seed = (0x9e3779b9 ^ size) >>> 0;
+  return shuffledValues(size, () => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    return seed / 4294967296;
+  });
+}
+
+function normalizeCountForAlgorithm(value: number, algorithm: Algorithm) {
+  if (algorithm.allowedN?.length) {
+    return algorithm.allowedN.reduce((nearest, option) => (
+      Math.abs(option - value) < Math.abs(nearest - value) ? option : nearest
+    ));
+  }
+  const maximum = algorithm.maxN ?? 160;
+  const minimum = Math.min(8, maximum);
+  return Math.max(minimum, Math.min(maximum, value));
+}
+
 function CharacterIcon({ algorithm, size = "small" }: { algorithm: Algorithm; size?: "small" | "large" }) {
-  const column = algorithm.icon % 5;
-  const row = Math.floor(algorithm.icon / 5);
+  const isOriginalRoster = algorithm.icon < 20;
+  const localIcon = isOriginalRoster ? algorithm.icon : algorithm.icon - 20;
+  const columns = isOriginalRoster ? 5 : 3;
+  const rows = isOriginalRoster ? 4 : 2;
+  const column = localIcon % columns;
+  const row = Math.floor(localIcon / columns);
   return (
     <span
       aria-hidden="true"
       className={`character-icon character-icon--${size}`}
       style={{
-        backgroundImage: `url(${BASE_PATH}/sort-characters.webp)`,
-        backgroundPosition: `${column * 25}% ${row * (100 / 3)}%`,
+        backgroundImage: `url(${BASE_PATH}/${isOriginalRoster ? "sort-characters.webp" : "sort-characters-new.webp"})`,
+        backgroundPosition: `${column * (100 / (columns - 1))}% ${row * (100 / (rows - 1))}%`,
+        backgroundSize: `${columns * 100}% ${rows * 100}%`,
       }}
     />
   );
@@ -82,11 +106,12 @@ export default function SortLab() {
   const [count, setCount] = useState(48);
   const [speed, setSpeed] = useState(76);
   const [sound, setSound] = useState(true);
-  const [values, setValues] = useState(() => shuffledValues(48));
+  const [values, setValues] = useState(() => initialValues(48));
   const [status, setStatus] = useState<RunStatus>("idle");
   const [active, setActive] = useState<number[]>([]);
   const [activeType, setActiveType] = useState<SortOperation["type"] | null>(null);
   const [cursor, setCursor] = useState(0);
+  const [operationCount, setOperationCount] = useState(0);
   const [metrics, setMetrics] = useState({ comparisons: 0, moves: 0 });
   const [elapsed, setElapsed] = useState(0);
 
@@ -194,11 +219,19 @@ export default function SortLab() {
       setActive(operation.indices);
       toneValue = Math.max(next[a] ?? 1, next[b] ?? 1);
       setMetrics((current) => ({ ...current, moves: current.moves + 1 }));
-    } else {
+    } else if (operation.type === "write") {
       next[operation.index] = operation.value;
       setActive([operation.index]);
       toneValue = operation.value;
       setMetrics((current) => ({ ...current, moves: current.moves + 1 }));
+    } else {
+      next.splice(0, next.length, ...operation.values);
+      setActive(next.map((_, index) => index));
+      toneValue = next[Math.floor(next.length / 2)] ?? 1;
+      setMetrics((current) => ({
+        comparisons: current.comparisons + operation.comparisons,
+        moves: current.moves + next.length,
+      }));
     }
     setActiveType(operation.type);
     valuesRef.current = next;
@@ -227,7 +260,9 @@ export default function SortLab() {
   useEffect(() => () => cancelTimer(), [cancelTimer]);
 
   const prepare = useCallback((source: number[]) => {
-    operationsRef.current = buildSortOperations(algorithm.id, source);
+    const operations = buildSortOperations(algorithm.id, source);
+    operationsRef.current = operations;
+    setOperationCount(operations.length);
     cursorRef.current = 0;
     setCursor(0);
     setMetrics({ comparisons: 0, moves: 0 });
@@ -279,6 +314,7 @@ export default function SortLab() {
     valuesRef.current = next;
     setValues(next);
     operationsRef.current = [];
+    setOperationCount(0);
     cursorRef.current = 0;
     setCursor(0);
     setMetrics({ comparisons: 0, moves: 0 });
@@ -295,6 +331,7 @@ export default function SortLab() {
     valuesRef.current = next;
     setValues(next);
     operationsRef.current = [];
+    setOperationCount(0);
     cursorRef.current = 0;
     setCursor(0);
     setMetrics({ comparisons: 0, moves: 0 });
@@ -305,27 +342,33 @@ export default function SortLab() {
   }, [cancelTimer, count, setRunStatus]);
 
   const changeCount = (nextCount: number) => {
-    setCount(nextCount);
-    shuffle(nextCount);
+    const normalized = normalizeCountForAlgorithm(nextCount, algorithm);
+    if (normalized === count) return;
+    setCount(normalized);
+    shuffle(normalized);
   };
 
   const chooseAlgorithm = (next: Algorithm) => {
     if (next.id === algorithm.id) return;
     cancelTimer();
     setSelectedId(next.id);
-    if (next.maxN && count > next.maxN) {
-      setCount(next.maxN);
-      shuffle(next.maxN);
+    const nextCount = normalizeCountForAlgorithm(count, next);
+    if (nextCount !== count) {
+      setCount(nextCount);
+      shuffle(nextCount);
     } else {
       resetToInitial();
     }
   };
 
-  const totalOperations = operationsRef.current.length;
+  const totalOperations = operationCount;
   const progress = totalOperations ? Math.min(100, (cursor / totalOperations) * 100) : 0;
   const maxValue = Math.max(...values, 1);
   const statusLabel = status === "running" ? "ソート中" : status === "paused" ? "一時停止" : status === "done" ? "完了" : "準備OK";
-  const currentMax = algorithm.maxN ?? 160;
+  const allowedCounts = algorithm.allowedN;
+  const currentMax = allowedCounts?.at(-1) ?? algorithm.maxN ?? 160;
+  const currentMin = allowedCounts?.[0] ?? Math.min(8, currentMax);
+  const countSliderValue = allowedCounts ? Math.max(0, allowedCounts.indexOf(count)) : count;
 
   return (
     <main className="site-shell">
@@ -336,7 +379,7 @@ export default function SortLab() {
         </a>
         <div className="topbar-copy">
           <span className="live-dot" />
-          20人のソートガールズと、並び替えを観察しよう
+          26組のソートキャラクターと、並び替えを観察しよう
         </div>
         <a className="github-link" href="https://github.com/kyoujyu88/SortLand" target="_blank" rel="noreferrer" aria-label="SortLandのGitHubリポジトリを開く">
           <span aria-hidden="true">↗</span> GitHub Pages Ready
@@ -346,8 +389,8 @@ export default function SortLab() {
       <div className="workspace" id="top">
         <aside className="algorithm-panel" aria-label="ソートアルゴリズム一覧">
           <div className="panel-heading">
-            <div><span className="eyebrow">CHARACTER SELECT</span><h2>ソートガールズ</h2></div>
-            <span className="count-badge">20</span>
+            <div><span className="eyebrow">CHARACTER SELECT</span><h2>ソートキャラクターズ</h2></div>
+            <span className="count-badge">{ALGORITHMS.length}</span>
           </div>
           <div className="filter-tabs" role="tablist" aria-label="カテゴリで絞り込み">
             {(Object.keys(CATEGORY_LABELS) as Filter[]).map((key) => (
@@ -437,8 +480,19 @@ export default function SortLab() {
             <div className="settings-grid">
               <label className="range-control">
                 <span><b>要素数</b><output>{count}</output></span>
-                <input type="range" min="8" max={currentMax} step="1" value={count} onChange={(event) => changeCount(Number(event.target.value))} disabled={status === "running"} />
-                <small><span>8</span><span>{currentMax}</span></small>
+                <input
+                  type="range"
+                  min={allowedCounts ? 0 : currentMin}
+                  max={allowedCounts ? allowedCounts.length - 1 : currentMax}
+                  step="1"
+                  value={countSliderValue}
+                  onChange={(event) => {
+                    const sliderValue = Number(event.target.value);
+                    changeCount(allowedCounts?.[sliderValue] ?? sliderValue);
+                  }}
+                  disabled={status === "running"}
+                />
+                <small><span>{currentMin}</span><span>{currentMax}</span></small>
               </label>
               <label className="range-control">
                 <span><b>スピード</b><output>{speed}</output></span>
@@ -455,7 +509,7 @@ export default function SortLab() {
 
           <section className="learning-grid">
             <article className="info-card">
-              <span className="eyebrow">HOW SHE SORTS</span>
+              <span className="eyebrow">HOW THEY SORT</span>
               <h2>{algorithm.character}の作戦</h2>
               <p>{algorithm.how}</p>
             </article>
@@ -467,7 +521,7 @@ export default function SortLab() {
         </section>
       </div>
 
-      <footer><span>SORTLAND</span><p>目で見て、耳で聴いて、アルゴリズムを好きになる。</p><small>20 ALGORITHMS · 100% STATIC · GITHUB PAGES</small></footer>
+      <footer><span>SORTLAND</span><p>目で見て、耳で聴いて、アルゴリズムを好きになる。</p><small>26 ALGORITHMS · 100% STATIC · GITHUB PAGES</small></footer>
     </main>
   );
 }
