@@ -16,6 +16,7 @@ export type Algorithm = {
   memory: string;
   stable: boolean;
   maxN?: number;
+  allowedN?: number[];
 };
 
 export const ALGORITHMS: Algorithm[] = [
@@ -158,6 +159,49 @@ export const ALGORITHMS: Algorithm[] = [
     description: "クイックソートを軸に、再帰が深すぎるとヒープ、小区間では挿入へ切り替えます。",
     how: "平均の速さと最悪時の保証を両立するハイブリッド。状況に応じて三つの武器を使い分けます。",
     average: "O(n log n)", worst: "O(n log n)", memory: "O(log n)", stable: false,
+  },
+  {
+    id: "bogo", name: "ボゴソート", english: "BOGO SORT", character: "ボゴ・ゴリラ",
+    category: "unique", icon: 20, accent: "#c98645", tagline: "サイコロ任せで、当たりの並びを引くまで混ぜる。",
+    description: "並びが整っているか確かめ、違っていたら全体をランダムにシャッフル。理屈より運で正解を待つ、究極のネタ系ソートです。",
+    how: "シャッフル一回を一つのステップとして観察します。ブラウザを守るため要素数は7まで。規定回数で当たりを引けない場合だけ、挿入ソートが最後のひと押しを担当します。",
+    average: "O(n · n!)", worst: "上限なし", memory: "O(n)", stable: false, maxN: 7,
+  },
+  {
+    id: "bitonic", name: "ビトニックソート", english: "BITONIC SORT", character: "ビトニカ・ピーク",
+    category: "fast", icon: 21, accent: "#6676a8", tagline: "上り坂と下り坂を作り、頂点から一気にそろえる。",
+    description: "増加列と減少列を組み合わせたビトニック列を作り、規則正しい比較ネットワークで昇順へ変換します。",
+    how: "比較する相手が段階ごとに決まっているため、左右対称の波が何度も走ります。標準形に合わせ、要素数は2の累乗から選びます。",
+    average: "O(n log² n)", worst: "O(n log² n)", memory: "O(1)", stable: false,
+    maxN: 128, allowedN: [8, 16, 32, 64, 128],
+  },
+  {
+    id: "circle", name: "サークルソート", english: "CIRCLE SORT", character: "サーラ・リング",
+    category: "unique", icon: 22, accent: "#c97878", tagline: "外側の二人から、円を縮めるように比べる。",
+    description: "列の両端をペアにして内側へ進み、左右の大小が逆なら交換。半分ずつ再帰し、交換がなくなるまで円を描くように繰り返します。",
+    how: "端と端、次の端と次の端という対称的な比較が見どころです。比較回数の厳密な一般評価は研究途上ですが、独特の反復模様を観察できます。",
+    average: "未確定", worst: "未確定", memory: "O(log n)", stable: false,
+  },
+  {
+    id: "bead", name: "ビーズソート", english: "BEAD SORT", character: "ビーディ・ドロップ",
+    category: "linear", icon: 23, accent: "#4f9d96", tagline: "ビーズを落として、重力に順番を任せる。",
+    description: "値をビーズの本数として並べ、同じ桁のビーズを重力方向へ落下。積み上がった高さを読み取ると、小さい順に整います。",
+    how: "低い段からビーズが一粒ずつ落ち、棒の高さが階段状に育ちます。正の整数専用で操作量も増えやすいため、要素数は64までです。",
+    average: "O(n · m)", worst: "O(n · m)", memory: "O(n)", stable: false, maxN: 64,
+  },
+  {
+    id: "tournament", name: "トーナメントソート", english: "TOURNAMENT SORT", character: "トーナ・ウィナー",
+    category: "fast", icon: 24, accent: "#708c52", tagline: "一対一の勝負を重ね、最小値を勝者にする。",
+    description: "値をトーナメント表で比較し、各試合の小さい値を上へ進めます。優勝者を取り出したら、その経路だけを再試合します。",
+    how: "最初に全員で勝ち抜き戦を作り、以後は優勝者がいた枝だけを更新。比較の流れが木の根元へ集まる様子を追えます。",
+    average: "O(n log n)", worst: "O(n log n)", memory: "O(n)", stable: false,
+  },
+  {
+    id: "tree", name: "ツリーソート", english: "TREE SORT", character: "ツリィ・リーフ",
+    category: "fast", icon: 25, accent: "#668455", tagline: "枝へ値を預け、左から順番に読み取る。",
+    description: "小さい値を左、大きい値を右へ入れて二分探索木を構築。左の枝、根、右の枝の順にたどって整列結果を取り出します。",
+    how: "入力順に枝が伸び、最後は左端から右端へ読み上げます。偏った入力では木も偏るため、最悪時には二乗時間になります。",
+    average: "O(n log n)", worst: "O(n²)", memory: "O(n)", stable: false,
   },
 ];
 
