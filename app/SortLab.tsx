@@ -9,7 +9,60 @@ import { buildSortOperations, type SortOperation } from "@/lib/sorts";
 type RunStatus = "idle" | "running" | "paused" | "done";
 type Filter = "all" | AlgorithmCategory;
 
+type SortMetrics = {
+  comparisons: number;
+  moves: number;
+  counts: number;
+  distributions: number;
+  collections: number;
+  drops: number;
+  levels: number;
+};
+
+type CountAuxiliary = {
+  kind: "counts";
+  title: string;
+  labels: string[];
+  counts: number[];
+  output: Array<number | null>;
+  activeBucket: number;
+  phase: "count" | "collect";
+};
+
+type BucketAuxiliary = {
+  kind: "buckets";
+  title: string;
+  labels: string[];
+  buckets: number[][];
+  output: Array<number | null>;
+  activeBucket: number;
+  phase: "distribute" | "collect";
+};
+
+type BeadAuxiliary = {
+  kind: "beads";
+  title: string;
+  heights: number[];
+  maxLevel: number;
+  activeRow: number;
+  level: number;
+};
+
+type AuxiliaryState = CountAuxiliary | BucketAuxiliary | BeadAuxiliary;
+
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+
+function createMetrics(): SortMetrics {
+  return {
+    comparisons: 0,
+    moves: 0,
+    counts: 0,
+    distributions: 0,
+    collections: 0,
+    drops: 0,
+    levels: 0,
+  };
+}
 
 function shuffledValues(size: number, random: () => number = Math.random) {
   const values = Array.from({ length: size }, (_, index) => index + 1);
@@ -66,6 +119,73 @@ function Metric({ label, value, unit }: { label: string; value: string | number;
       <strong>{value}</strong>
       {unit && <small>{unit}</small>}
     </div>
+  );
+}
+
+function AuxiliaryPanel({ state }: { state: AuxiliaryState }) {
+  const isCollecting = state.kind !== "beads" && state.phase === "collect";
+  return (
+    <section className={`auxiliary-panel auxiliary-panel--${state.kind}`} aria-label={state.title}>
+      <header className="auxiliary-panel__header">
+        <div><span>AUXILIARY WORKSPACE</span><strong>{state.title}</strong></div>
+        <small>
+          {state.kind === "counts"
+            ? isCollecting ? "小さい値から回収中" : "出現回数を記録中"
+            : state.kind === "buckets"
+              ? isCollecting ? "バケットから回収中" : "対応する場所へ振り分け中"
+              : `レベル ${state.level} / ${state.maxLevel}`}
+        </small>
+      </header>
+
+      {state.kind === "counts" && (
+        <div className="auxiliary-scroll">
+          <div className="count-cells">
+            {state.labels.map((label, index) => (
+              <div className={index === state.activeBucket ? "is-active" : ""} key={label}>
+                <span>{label}</span><strong>{state.counts[index]}</strong>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {state.kind === "buckets" && (
+        <div className="auxiliary-scroll">
+          <div className="bucket-rack">
+            {state.buckets.map((bucket, index) => (
+              <div className={`bucket ${index === state.activeBucket ? "is-active" : ""}`} key={`${state.title}-${state.labels[index]}`}>
+                <span>{state.labels[index]}</span>
+                <div>{bucket.length ? bucket.map((value, itemIndex) => <i key={`${value}-${itemIndex}`}>{value}</i>) : <em>—</em>}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {state.kind === "beads" && (
+        <div className="auxiliary-scroll">
+          <div className="bead-rack">
+            {state.heights.map((height, row) => (
+              <div className={row === state.activeRow ? "is-active" : ""} key={row}>
+                <span style={{ height: `${(height / Math.max(1, state.maxLevel)) * 100}%` }} />
+                <small>{height || ""}</small>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {state.kind !== "beads" && (
+        <div className="output-buffer">
+          <span>OUTPUT</span>
+          <div>
+            {state.output.map((value, index) => (
+              <i className={value === null ? "is-empty" : ""} key={index}>{value ?? "·"}</i>
+            ))}
+          </div>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -146,7 +266,8 @@ export default function SortLab() {
   const [activeType, setActiveType] = useState<SortOperation["type"] | null>(null);
   const [cursor, setCursor] = useState(0);
   const [operationCount, setOperationCount] = useState(0);
-  const [metrics, setMetrics] = useState({ comparisons: 0, moves: 0 });
+  const [metrics, setMetrics] = useState<SortMetrics>(() => createMetrics());
+  const [auxiliary, setAuxiliary] = useState<AuxiliaryState | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
 
@@ -283,14 +404,106 @@ export default function SortLab() {
       setActive([operation.index]);
       toneValue = operation.value;
       setMetrics((current) => ({ ...current, moves: current.moves + 1 }));
-    } else {
+    } else if (operation.type === "shuffle") {
       next.splice(0, next.length, ...operation.values);
       setActive(next.map((_, index) => index));
       toneValue = next[Math.floor(next.length / 2)] ?? 1;
       setMetrics((current) => ({
+        ...current,
         comparisons: current.comparisons + operation.comparisons,
         moves: current.moves + next.length,
       }));
+    } else if (operation.type === "count") {
+      setActive([operation.index]);
+      toneValue = operation.value;
+      setMetrics((current) => ({ ...current, counts: current.counts + 1 }));
+      setAuxiliary((current) => {
+        const base: CountAuxiliary | null = operation.setup
+          ? {
+              kind: "counts",
+              title: operation.setup.title,
+              labels: operation.setup.labels,
+              counts: new Array(operation.setup.labels.length).fill(0),
+              output: new Array(operation.setup.outputSize).fill(null),
+              activeBucket: operation.bucket,
+              phase: "count",
+            }
+          : current?.kind === "counts" ? current : null;
+        if (!base) return current;
+        const counts = [...base.counts];
+        counts[operation.bucket] = (counts[operation.bucket] ?? 0) + 1;
+        return { ...base, counts, activeBucket: operation.bucket, phase: "count" };
+      });
+    } else if (operation.type === "distribute") {
+      setActive([operation.index]);
+      toneValue = operation.value;
+      setMetrics((current) => ({ ...current, distributions: current.distributions + 1 }));
+      setAuxiliary((current) => {
+        const base: BucketAuxiliary | null = operation.setup
+          ? {
+              kind: "buckets",
+              title: operation.setup.title,
+              labels: operation.setup.labels,
+              buckets: Array.from({ length: operation.setup.labels.length }, () => []),
+              output: new Array(operation.setup.outputSize).fill(null),
+              activeBucket: operation.bucket,
+              phase: "distribute",
+            }
+          : current?.kind === "buckets" ? current : null;
+        if (!base) return current;
+        const buckets = base.buckets.map((bucket) => [...bucket]);
+        buckets[operation.bucket].push(operation.value);
+        return { ...base, buckets, activeBucket: operation.bucket, phase: "distribute" };
+      });
+    } else if (operation.type === "collect") {
+      next[operation.index] = operation.value;
+      setActive([operation.index]);
+      toneValue = operation.value;
+      setMetrics((current) => ({ ...current, collections: current.collections + 1 }));
+      setAuxiliary((current) => {
+        if (current?.kind === "counts") {
+          const counts = [...current.counts];
+          counts[operation.bucket] = Math.max(0, (counts[operation.bucket] ?? 0) - 1);
+          const output = [...current.output];
+          output[operation.index] = operation.value;
+          return { ...current, counts, output, activeBucket: operation.bucket, phase: "collect" };
+        }
+        if (current?.kind === "buckets") {
+          const buckets = current.buckets.map((bucket) => [...bucket]);
+          const valueIndex = buckets[operation.bucket].indexOf(operation.value);
+          if (valueIndex >= 0) buckets[operation.bucket].splice(valueIndex, 1);
+          const output = [...current.output];
+          output[operation.index] = operation.value;
+          return { ...current, buckets, output, activeBucket: operation.bucket, phase: "collect" };
+        }
+        return current;
+      });
+    } else {
+      if (operation.setup) next.fill(0);
+      next[operation.row] = operation.value;
+      setActive([operation.row]);
+      toneValue = operation.value;
+      setMetrics((current) => ({
+        ...current,
+        drops: current.drops + 1,
+        levels: Math.max(current.levels, operation.level),
+      }));
+      setAuxiliary((current) => {
+        const base: BeadAuxiliary | null = operation.setup
+          ? {
+              kind: "beads",
+              title: operation.setup.title,
+              heights: new Array(operation.setup.rowCount).fill(0),
+              maxLevel: operation.setup.maxLevel,
+              activeRow: operation.row,
+              level: operation.level,
+            }
+          : current?.kind === "beads" ? current : null;
+        if (!base) return current;
+        const heights = [...base.heights];
+        heights[operation.row] = operation.value;
+        return { ...base, heights, activeRow: operation.row, level: operation.level };
+      });
     }
     setActiveType(operation.type);
     valuesRef.current = next;
@@ -328,7 +541,8 @@ export default function SortLab() {
     setOperationCount(operations.length);
     cursorRef.current = 0;
     setCursor(0);
-    setMetrics({ comparisons: 0, moves: 0 });
+    setMetrics(createMetrics());
+    setAuxiliary(null);
     setElapsed(0);
     setActive([]);
     setActiveType(null);
@@ -381,7 +595,8 @@ export default function SortLab() {
     setOperationCount(0);
     cursorRef.current = 0;
     setCursor(0);
-    setMetrics({ comparisons: 0, moves: 0 });
+    setMetrics(createMetrics());
+    setAuxiliary(null);
     setElapsed(0);
     setActive([]);
     setActiveType(null);
@@ -399,7 +614,8 @@ export default function SortLab() {
     setOperationCount(0);
     cursorRef.current = 0;
     setCursor(0);
-    setMetrics({ comparisons: 0, moves: 0 });
+    setMetrics(createMetrics());
+    setAuxiliary(null);
     setElapsed(0);
     setActive([]);
     setActiveType(null);
@@ -429,7 +645,19 @@ export default function SortLab() {
 
   const totalOperations = operationCount;
   const progress = totalOperations ? Math.min(100, (cursor / totalOperations) * 100) : 0;
-  const maxValue = Math.max(...values, 1);
+  const displayValues: Array<number | null> = auxiliary?.kind === "beads"
+    ? auxiliary.heights
+    : auxiliary && auxiliary.phase === "collect" ? auxiliary.output : values;
+  const maxValue = Math.max(count, ...values, 1);
+  const metricPair = algorithm.id === "counting"
+    ? { firstLabel: "カウント", firstValue: metrics.counts, secondLabel: "回収", secondValue: metrics.collections }
+    : algorithm.id === "radix" || algorithm.id === "bucket"
+      ? { firstLabel: "振り分け", firstValue: metrics.distributions, secondLabel: "回収", secondValue: metrics.collections }
+      : algorithm.id === "bead"
+        ? { firstLabel: "ビーズ落下", firstValue: metrics.drops, secondLabel: "段", secondValue: metrics.levels }
+        : { firstLabel: "比較", firstValue: metrics.comparisons, secondLabel: "移動", secondValue: metrics.moves };
+  const auxiliaryActionLabel = algorithm.id === "counting" ? "カウント"
+    : algorithm.id === "bead" ? "落下" : "振り分け";
   const statusLabel = status === "running" ? "ソート中" : status === "paused" ? "一時停止" : status === "done" ? "完了" : "準備OK";
   const allowedCounts = algorithm.allowedN;
   const currentMax = allowedCounts?.at(-1) ?? algorithm.maxN ?? 160;
@@ -504,11 +732,24 @@ export default function SortLab() {
             <div className="visualizer-toolbar">
               <div className="metrics-row">
                 <Metric label="要素数" value={count} unit="n" />
-                <Metric label="比較" value={metrics.comparisons.toLocaleString("ja-JP")} />
-                <Metric label="移動" value={metrics.moves.toLocaleString("ja-JP")} />
+                <Metric label={metricPair.firstLabel} value={metricPair.firstValue.toLocaleString("ja-JP")} />
+                <Metric label={metricPair.secondLabel} value={metricPair.secondValue.toLocaleString("ja-JP")} />
                 <Metric label="経過" value={(elapsed / 1000).toFixed(2)} unit="秒" />
               </div>
-              <div className="legend" aria-label="色の凡例"><span><i className="legend-normal" />未処理</span><span><i className="legend-compare" />比較</span><span><i className="legend-move" />交換・配置</span></div>
+              <div className="legend" aria-label="色の凡例">
+                <span><i className="legend-normal" />未処理</span>
+                {algorithm.category === "linear" ? (
+                  <>
+                    <span><i className="legend-auxiliary" />{auxiliaryActionLabel}</span>
+                    {algorithm.id !== "bead" && <span><i className="legend-collect" />回収</span>}
+                  </>
+                ) : (
+                  <>
+                    <span><i className="legend-compare" />比較</span>
+                    <span><i className="legend-move" />交換・配置</span>
+                  </>
+                )}
+              </div>
             </div>
 
             <div
@@ -520,13 +761,14 @@ export default function SortLab() {
             >
               <div className="grid-lines" aria-hidden="true"><i /><i /><i /><i /></div>
               <div className="bars" aria-label={`${count}本の棒グラフ`}>
-                {values.map((value, index) => {
+                {displayValues.map((value, index) => {
                   const isActive = active.includes(index);
                   const activeClass = isActive ? `is-${activeType}` : "";
+                  const displayValue = value ?? 0;
                   return (
-                    <div className={`bar-wrap ${activeClass}`} key={index} style={{ width: `${100 / count}%` }}>
-                      <div className="bar" style={{ height: `${(value / maxValue) * 100}%`, "--bar-index": index } as React.CSSProperties}>
-                        {count <= 32 && <span>{value}</span>}
+                    <div className={`bar-wrap ${activeClass} ${value === null ? "is-empty" : ""}`} key={index} style={{ width: `${100 / count}%` }}>
+                      <div className="bar" style={{ height: `${(displayValue / maxValue) * 100}%`, "--bar-index": index } as React.CSSProperties}>
+                        {count <= 32 && value !== null && <span>{value}</span>}
                       </div>
                     </div>
                   );
@@ -536,6 +778,7 @@ export default function SortLab() {
             </div>
 
             <div className="progress-track" aria-label={`進行度 ${Math.round(progress)}%`}><span style={{ width: `${progress}%`, background: algorithm.accent }} /></div>
+            {auxiliary && <AuxiliaryPanel state={auxiliary} />}
           </section>
 
           <section className="control-deck" aria-label="ソート設定">

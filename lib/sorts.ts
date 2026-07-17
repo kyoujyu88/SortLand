@@ -1,8 +1,24 @@
+type DistributionSetup = {
+  title: string;
+  labels: string[];
+  outputSize: number;
+};
+
+type BeadSetup = {
+  title: string;
+  rowCount: number;
+  maxLevel: number;
+};
+
 export type SortOperation =
   | { type: "compare"; indices: [number, number] }
   | { type: "swap"; indices: [number, number] }
   | { type: "write"; index: number; value: number }
-  | { type: "shuffle"; values: number[]; comparisons: number };
+  | { type: "shuffle"; values: number[]; comparisons: number }
+  | { type: "count"; index: number; value: number; bucket: number; setup?: DistributionSetup }
+  | { type: "distribute"; index: number; value: number; bucket: number; setup?: DistributionSetup }
+  | { type: "collect"; index: number; value: number; bucket: number }
+  | { type: "drop"; row: number; value: number; level: number; setup?: BeadSetup };
 
 type SortRecorder = {
   array: number[];
@@ -11,6 +27,10 @@ type SortRecorder = {
   swap: (a: number, b: number) => void;
   write: (index: number, value: number) => void;
   shuffle: (values: number[], comparisons: number) => void;
+  count: (index: number, value: number, bucket: number, setup?: DistributionSetup) => void;
+  distribute: (index: number, value: number, bucket: number, setup?: DistributionSetup) => void;
+  collect: (index: number, value: number, bucket: number) => void;
+  drop: (row: number, value: number, level: number, setup?: BeadSetup) => void;
 };
 
 function createRecorder(input: number[]): SortRecorder {
@@ -35,6 +55,20 @@ function createRecorder(input: number[]): SortRecorder {
     shuffle(values, comparisons) {
       array.splice(0, array.length, ...values);
       operations.push({ type: "shuffle", values: [...values], comparisons });
+    },
+    count(index, value, bucket, setup) {
+      operations.push({ type: "count", index, value, bucket, setup });
+    },
+    distribute(index, value, bucket, setup) {
+      operations.push({ type: "distribute", index, value, bucket, setup });
+    },
+    collect(index, value, bucket) {
+      array[index] = value;
+      operations.push({ type: "collect", index, value, bucket });
+    },
+    drop(row, value, level, setup) {
+      array[row] = value;
+      operations.push({ type: "drop", row, value, level, setup });
     },
   };
 }
@@ -182,29 +216,47 @@ function shellSort(r: SortRecorder) {
 function countingSort(r: SortRecorder) {
   const { array: a } = r;
   if (!a.length) return;
+  const source = [...a];
   const min = Math.min(...a);
   const max = Math.max(...a);
   const counts = new Array(max - min + 1).fill(0);
-  for (const value of a) counts[value - min]++;
+  const labels = Array.from({ length: counts.length }, (_, index) => String(min + index));
+  source.forEach((value, index) => {
+    const bucket = value - min;
+    counts[bucket]++;
+    r.count(index, value, bucket, index === 0 ? {
+      title: "値ごとのカウント表",
+      labels,
+      outputSize: source.length,
+    } : undefined);
+  });
   let index = 0;
   for (let value = min; value <= max; value++) {
-    while (counts[value - min]-- > 0) r.write(index++, value);
+    while (counts[value - min]-- > 0) r.collect(index++, value, value - min);
   }
 }
 
 function radixSort(r: SortRecorder) {
   const { array: a } = r;
+  if (!a.length) return;
   const max = Math.max(...a);
   for (let exp = 1; Math.floor(max / exp) > 0; exp *= 10) {
-    const output = new Array(a.length).fill(0);
-    const count = new Array(10).fill(0);
-    for (const value of a) count[Math.floor(value / exp) % 10]++;
-    for (let i = 1; i < 10; i++) count[i] += count[i - 1];
-    for (let i = a.length - 1; i >= 0; i--) {
-      const digit = Math.floor(a[i] / exp) % 10;
-      output[--count[digit]] = a[i];
-    }
-    output.forEach((value, index) => r.write(index, value));
+    const source = [...a];
+    const buckets: number[][] = Array.from({ length: 10 }, () => []);
+    const placeLabel = exp === 1 ? "1の位" : `${exp}の位`;
+    source.forEach((value, index) => {
+      const bucket = Math.floor(value / exp) % 10;
+      buckets[bucket].push(value);
+      r.distribute(index, value, bucket, index === 0 ? {
+        title: `${placeLabel}で振り分け`,
+        labels: Array.from({ length: 10 }, (_, digit) => String(digit)),
+        outputSize: source.length,
+      } : undefined);
+    });
+    let outputIndex = 0;
+    buckets.forEach((bucket, bucketIndex) => {
+      bucket.forEach((value) => r.collect(outputIndex++, value, bucketIndex));
+    });
   }
 }
 
@@ -332,26 +384,37 @@ function pancakeSort(r: SortRecorder) {
 function bucketSort(r: SortRecorder) {
   const { array: a } = r;
   if (a.length < 2) return;
+  const source = [...a];
   const bucketCount = Math.max(2, Math.floor(Math.sqrt(a.length)));
   const min = Math.min(...a);
   const max = Math.max(...a);
   const span = (max - min + 1) / bucketCount;
   const buckets: number[][] = Array.from({ length: bucketCount }, () => []);
-  a.forEach((value) => buckets[Math.min(bucketCount - 1, Math.floor((value - min) / span))].push(value));
-  const output: number[] = [];
-  for (const bucket of buckets) {
-    for (let i = 1; i < bucket.length; i++) {
-      const value = bucket[i];
-      let j = i - 1;
-      while (j >= 0 && bucket[j] > value) {
-        bucket[j + 1] = bucket[j];
-        j--;
-      }
-      bucket[j + 1] = value;
+  const ranges = Array.from({ length: bucketCount }, (_, bucket) => {
+    const lower = Math.ceil(min + bucket * span);
+    const upper = bucket === bucketCount - 1 ? max : Math.ceil(min + (bucket + 1) * span) - 1;
+    return { lower, upper };
+  });
+  source.forEach((value, index) => {
+    const bucket = Math.min(bucketCount - 1, Math.floor((value - min) / span));
+    buckets[bucket].push(value);
+    r.distribute(index, value, bucket, index === 0 ? {
+      title: "値の範囲でバケット分け",
+      labels: ranges.map(({ lower, upper }) => `${lower}–${upper}`),
+      outputSize: source.length,
+    } : undefined);
+  });
+
+  let outputIndex = 0;
+  buckets.forEach((bucket, bucketIndex) => {
+    const frequencies = new Map<number, number>();
+    bucket.forEach((value) => frequencies.set(value, (frequencies.get(value) ?? 0) + 1));
+    const { lower, upper } = ranges[bucketIndex];
+    for (let value = lower; value <= upper; value++) {
+      const amount = frequencies.get(value) ?? 0;
+      for (let copy = 0; copy < amount; copy++) r.collect(outputIndex++, value, bucketIndex);
     }
-    output.push(...bucket);
-    output.forEach((value, index) => r.write(index, value));
-  }
+  });
 }
 
 function timSort(r: SortRecorder) {
@@ -558,13 +621,20 @@ function beadSort(r: SortRecorder) {
   const original = [...r.array];
   const heights = new Array(original.length).fill(0);
   const max = Math.max(...original, 0);
+  r.array.fill(0);
+  let isFirstDrop = true;
 
   for (let level = 1; level <= max; level++) {
     let beadCount = 0;
     for (const value of original) if (value >= level) beadCount++;
     for (let row = original.length - beadCount; row < original.length; row++) {
       heights[row]++;
-      r.write(row, heights[row]);
+      r.drop(row, heights[row], level, isFirstDrop ? {
+        title: "ビーズの重力ラック",
+        rowCount: original.length,
+        maxLevel: max,
+      } : undefined);
+      isFirstDrop = false;
     }
   }
 }

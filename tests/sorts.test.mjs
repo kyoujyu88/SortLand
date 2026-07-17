@@ -20,6 +20,11 @@ function applyOperations(input, operations) {
       [values[a], values[b]] = [values[b], values[a]];
     } else if (operation.type === "write") {
       values[operation.index] = operation.value;
+    } else if (operation.type === "collect") {
+      values[operation.index] = operation.value;
+    } else if (operation.type === "drop") {
+      if (operation.setup) values.fill(0);
+      values[operation.row] = operation.value;
     } else if (operation.type === "shuffle") {
       values.splice(0, values.length, ...operation.values);
     }
@@ -79,6 +84,37 @@ test("the completion sweep climbs from the smallest bar to the largest", () => {
   }
 });
 
+test("non-comparison sorts expose their real auxiliary operations", () => {
+  const size = 48;
+  const input = Array.from({ length: size }, (_, index) => ((index * 17 + 11) % size) + 1);
+  const operationTypes = (id) => buildSortOperations(id, input).map((operation) => operation.type);
+
+  const counting = operationTypes("counting");
+  assert.equal(counting.filter((type) => type === "count").length, size);
+  assert.equal(counting.filter((type) => type === "collect").length, size);
+  assert.ok(!counting.includes("write"));
+
+  for (const id of ["radix", "bucket"]) {
+    const operations = operationTypes(id);
+    assert.ok(operations.includes("distribute"), `${id} should show bucket distribution`);
+    assert.ok(operations.includes("collect"), `${id} should show collection`);
+    assert.ok(!operations.includes("compare"), `${id} should remain non-comparison for integer inputs`);
+    assert.ok(!operations.includes("write"), `${id} should not hide auxiliary work behind generic writes`);
+  }
+
+  const bucket = operationTypes("bucket");
+  assert.equal(bucket.filter((type) => type === "distribute").length, size);
+  assert.equal(bucket.filter((type) => type === "collect").length, size);
+
+  const bead = operationTypes("bead");
+  assert.ok(bead.every((type) => type === "drop"));
+  assert.equal(bead.length, (size * (size + 1)) / 2);
+  assert.deepEqual(
+    applyOperations([3, 0, 2, 1], buildSortOperations("bead", [3, 0, 2, 1])),
+    [0, 1, 2, 3],
+  );
+});
+
 test("every algorithm has a complete detailed learning guide", () => {
   assert.deepEqual(Object.keys(ALGORITHM_EXPLANATIONS).sort(), [...algorithmIds].sort());
   for (const id of algorithmIds) {
@@ -106,7 +142,7 @@ test("the product contains the complete character roster and GitHub Pages workfl
   assert.match(page, /SortLab/);
   assert.doesNotMatch(page, /codex-preview|SkeletonPreview/);
   assert.doesNotMatch(lab, /Math\.max\(2\.5/);
-  assert.match(lab, /height: `\$\{\(value \/ maxValue\) \* 100\}%`/);
+  assert.match(lab, /height: `\$\{\(displayValue \/ maxValue\) \* 100\}%`/);
   assert.match(lab, /playCompletionSweep/);
   assert.match(lab, /strikePianoKey/);
   assert.match(lab, /strikeSteelPan/);
@@ -114,7 +150,11 @@ test("the product contains the complete character roster and GitHub Pages workfl
   assert.match(lab, /allowedCounts/);
   assert.match(lab, /詳しい解説を見る/);
   assert.match(lab, /aria-expanded=\{isDetailsOpen\}/);
+  assert.match(lab, /AuxiliaryPanel/);
+  assert.match(lab, /カウント/);
+  assert.match(lab, /振り分け/);
   assert.match(styles, /\.detail-panel\s*\{/);
+  assert.match(styles, /\.auxiliary-panel\s*\{/);
   assert.match(styles, /\.character-icon\s*\{[^}]*display:\s*block/s);
   assert.match(styles, /grid-template-columns:\s*minmax\(0, 1fr\) 100px/);
   assert.ok(newCharacters.byteLength > 50_000);

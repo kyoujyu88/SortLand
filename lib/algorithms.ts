@@ -130,7 +130,7 @@ export const ALGORITHMS: Algorithm[] = [
     category: "linear", icon: 15, accent: "#62a8bf", tagline: "近い値を同じバケツへ集める。",
     description: "値の範囲を複数のバケツに分け、各バケツ内を整えてから順につなぎます。",
     how: "値が均等に散らばるデータほど高速。分布を利用して探索範囲を小さくする発想です。",
-    average: "O(n + k)", worst: "O(n²)", memory: "O(n + k)", stable: true,
+    average: "O(n + k)", worst: "O(n + k)", memory: "O(n + k)", stable: true,
   },
   {
     id: "tim", name: "ティムソート", english: "TIMSORT", character: "ティマ・コンダクト",
