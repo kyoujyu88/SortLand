@@ -5,6 +5,7 @@ import { ALGORITHMS, CATEGORY_LABELS, type Algorithm, type AlgorithmCategory } f
 import { buildPianoSweep, getCompletionSweepTiming } from "@/lib/completion";
 import { ALGORITHM_EXPLANATIONS } from "@/lib/explanations";
 import { buildSortOperations, type SortOperation } from "@/lib/sorts";
+import { projectGraphOperation, type GraphValue } from "@/lib/visualization";
 
 type RunStatus = "idle" | "running" | "paused" | "done";
 type Filter = "all" | AlgorithmCategory;
@@ -48,7 +49,21 @@ type BeadAuxiliary = {
   level: number;
 };
 
-type AuxiliaryState = CountAuxiliary | BucketAuxiliary | BeadAuxiliary;
+type MergeAuxiliary = {
+  kind: "merge";
+  title: string;
+  left: number;
+  right: number;
+  leftValues: number[];
+  rightValues: number[];
+  output: Array<number | null>;
+  consumedLeft: number;
+  consumedRight: number;
+  activeLeft: number | null;
+  activeRight: number | null;
+};
+
+type AuxiliaryState = CountAuxiliary | BucketAuxiliary | BeadAuxiliary | MergeAuxiliary;
 
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 
@@ -123,7 +138,7 @@ function Metric({ label, value, unit }: { label: string; value: string | number;
 }
 
 function AuxiliaryPanel({ state }: { state: AuxiliaryState }) {
-  const isCollecting = state.kind !== "beads" && state.phase === "collect";
+  const isCollecting = (state.kind === "counts" || state.kind === "buckets") && state.phase === "collect";
   return (
     <section className={`auxiliary-panel auxiliary-panel--${state.kind}`} aria-label={state.title}>
       <header className="auxiliary-panel__header">
@@ -133,7 +148,9 @@ function AuxiliaryPanel({ state }: { state: AuxiliaryState }) {
             ? isCollecting ? "小さい値から回収中" : "出現回数を記録中"
             : state.kind === "buckets"
               ? isCollecting ? "バケットから回収中" : "対応する場所へ振り分け中"
-              : `レベル ${state.level} / ${state.maxLevel}`}
+              : state.kind === "beads"
+                ? `レベル ${state.level} / ${state.maxLevel}`
+                : `区間 ${state.left + 1}〜${state.right + 1} を結合中`}
         </small>
       </header>
 
@@ -171,6 +188,33 @@ function AuxiliaryPanel({ state }: { state: AuxiliaryState }) {
                 <small>{height || ""}</small>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {state.kind === "merge" && (
+        <div className="merge-buffers">
+          <div>
+            <span>LEFT BUFFER</span>
+            <div>
+              {state.leftValues.map((value, index) => (
+                <i
+                  className={`${index < state.consumedLeft ? "is-consumed" : ""} ${index === state.activeLeft ? "is-active" : ""}`}
+                  key={`left-${index}`}
+                >{value}</i>
+              ))}
+            </div>
+          </div>
+          <div>
+            <span>RIGHT BUFFER</span>
+            <div>
+              {state.rightValues.map((value, index) => (
+                <i
+                  className={`${index < state.consumedRight ? "is-consumed" : ""} ${index === state.activeRight ? "is-active" : ""}`}
+                  key={`right-${index}`}
+                >{value}</i>
+              ))}
+            </div>
           </div>
         </div>
       )}
@@ -261,6 +305,7 @@ export default function SortLab() {
   const [speed, setSpeed] = useState(76);
   const [sound, setSound] = useState(true);
   const [values, setValues] = useState(() => initialValues(48));
+  const [graphValues, setGraphValues] = useState<GraphValue[]>(() => initialValues(48));
   const [status, setStatus] = useState<RunStatus>("idle");
   const [active, setActive] = useState<number[]>([]);
   const [activeType, setActiveType] = useState<SortOperation["type"] | null>(null);
@@ -279,6 +324,7 @@ export default function SortLab() {
   );
 
   const valuesRef = useRef(values);
+  const graphValuesRef = useRef(graphValues);
   const initialRef = useRef(values);
   const operationsRef = useRef<SortOperation[]>([]);
   const cursorRef = useRef(0);
@@ -388,6 +434,7 @@ export default function SortLab() {
 
   const applyOperation = useCallback((operation: SortOperation) => {
     const next = [...valuesRef.current];
+    const graphNext = projectGraphOperation(graphValuesRef.current, operation);
     let toneValue = 1;
     if (operation.type === "compare") {
       setActive(operation.indices);
@@ -478,7 +525,7 @@ export default function SortLab() {
         }
         return current;
       });
-    } else {
+    } else if (operation.type === "drop") {
       if (operation.setup) next.fill(0);
       next[operation.row] = operation.value;
       setActive([operation.row]);
@@ -504,10 +551,57 @@ export default function SortLab() {
         heights[operation.row] = operation.value;
         return { ...base, heights, activeRow: operation.row, level: operation.level };
       });
+    } else if (operation.type === "mergeStart") {
+      setActive([]);
+      toneValue = operation.leftValues[0] ?? operation.rightValues[0] ?? 1;
+      setAuxiliary({
+        kind: "merge",
+        title: "左右の一時配列をマージ",
+        left: operation.left,
+        right: operation.right,
+        leftValues: operation.leftValues,
+        rightValues: operation.rightValues,
+        output: new Array(operation.right - operation.left + 1).fill(null),
+        consumedLeft: 0,
+        consumedRight: 0,
+        activeLeft: null,
+        activeRight: null,
+      });
+    } else if (operation.type === "mergeCompare") {
+      setActive([]);
+      toneValue = Math.max(operation.leftValue, operation.rightValue);
+      setMetrics((current) => ({ ...current, comparisons: current.comparisons + 1 }));
+      setAuxiliary((current) => current?.kind === "merge"
+        ? { ...current, activeLeft: operation.leftIndex, activeRight: operation.rightIndex }
+        : current);
+    } else {
+      next[operation.index] = operation.value;
+      setActive([operation.index]);
+      toneValue = operation.value;
+      setMetrics((current) => ({ ...current, moves: current.moves + 1 }));
+      setAuxiliary((current) => {
+        if (current?.kind !== "merge") return current;
+        const output = [...current.output];
+        output[operation.index - current.left] = operation.value;
+        return {
+          ...current,
+          output,
+          consumedLeft: operation.source === "left"
+            ? Math.max(current.consumedLeft, operation.sourceIndex + 1)
+            : current.consumedLeft,
+          consumedRight: operation.source === "right"
+            ? Math.max(current.consumedRight, operation.sourceIndex + 1)
+            : current.consumedRight,
+          activeLeft: operation.source === "left" ? operation.sourceIndex : null,
+          activeRight: operation.source === "right" ? operation.sourceIndex : null,
+        };
+      });
     }
     setActiveType(operation.type);
     valuesRef.current = next;
     setValues(next);
+    graphValuesRef.current = graphNext;
+    setGraphValues(graphNext);
     cursorRef.current += 1;
     setCursor(cursorRef.current);
     setElapsed(Math.max(0, performance.now() - startedAtRef.current));
@@ -537,6 +631,9 @@ export default function SortLab() {
   const prepare = useCallback((source: number[]) => {
     cancelCompletionSweep();
     const operations = buildSortOperations(algorithm.id, source);
+    const graphSource = [...source];
+    graphValuesRef.current = graphSource;
+    setGraphValues(graphSource);
     operationsRef.current = operations;
     setOperationCount(operations.length);
     cursorRef.current = 0;
@@ -591,6 +688,8 @@ export default function SortLab() {
     const next = [...initialRef.current];
     valuesRef.current = next;
     setValues(next);
+    graphValuesRef.current = next;
+    setGraphValues(next);
     operationsRef.current = [];
     setOperationCount(0);
     cursorRef.current = 0;
@@ -610,6 +709,8 @@ export default function SortLab() {
     initialRef.current = next;
     valuesRef.current = next;
     setValues(next);
+    graphValuesRef.current = next;
+    setGraphValues(next);
     operationsRef.current = [];
     setOperationCount(0);
     cursorRef.current = 0;
@@ -645,9 +746,17 @@ export default function SortLab() {
 
   const totalOperations = operationCount;
   const progress = totalOperations ? Math.min(100, (cursor / totalOperations) * 100) : 0;
-  const displayValues: Array<number | null> = auxiliary?.kind === "beads"
+  const displayValues: GraphValue[] = auxiliary?.kind === "beads"
     ? auxiliary.heights
-    : auxiliary && auxiliary.phase === "collect" ? auxiliary.output : values;
+    : (auxiliary?.kind === "counts" || auxiliary?.kind === "buckets") && auxiliary.phase === "collect"
+      ? auxiliary.output
+      : auxiliary?.kind === "merge"
+        ? graphValues.map((value, index) => (
+            index >= auxiliary.left && index <= auxiliary.right
+              ? auxiliary.output[index - auxiliary.left]
+              : value
+          ))
+        : graphValues;
   const maxValue = Math.max(count, ...values, 1);
   const metricPair = algorithm.id === "counting"
     ? { firstLabel: "カウント", firstValue: metrics.counts, secondLabel: "回収", secondValue: metrics.collections }

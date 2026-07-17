@@ -18,7 +18,10 @@ export type SortOperation =
   | { type: "count"; index: number; value: number; bucket: number; setup?: DistributionSetup }
   | { type: "distribute"; index: number; value: number; bucket: number; setup?: DistributionSetup }
   | { type: "collect"; index: number; value: number; bucket: number }
-  | { type: "drop"; row: number; value: number; level: number; setup?: BeadSetup };
+  | { type: "drop"; row: number; value: number; level: number; setup?: BeadSetup }
+  | { type: "mergeStart"; left: number; mid: number; right: number; leftValues: number[]; rightValues: number[] }
+  | { type: "mergeCompare"; leftIndex: number; rightIndex: number; leftValue: number; rightValue: number }
+  | { type: "mergeTake"; index: number; value: number; source: "left" | "right"; sourceIndex: number };
 
 type SortRecorder = {
   array: number[];
@@ -31,6 +34,9 @@ type SortRecorder = {
   distribute: (index: number, value: number, bucket: number, setup?: DistributionSetup) => void;
   collect: (index: number, value: number, bucket: number) => void;
   drop: (row: number, value: number, level: number, setup?: BeadSetup) => void;
+  mergeStart: (left: number, mid: number, right: number, leftValues: number[], rightValues: number[]) => void;
+  mergeCompare: (leftIndex: number, rightIndex: number, leftValue: number, rightValue: number) => void;
+  mergeTake: (index: number, value: number, source: "left" | "right", sourceIndex: number) => void;
 };
 
 function createRecorder(input: number[]): SortRecorder {
@@ -69,6 +75,23 @@ function createRecorder(input: number[]): SortRecorder {
     drop(row, value, level, setup) {
       array[row] = value;
       operations.push({ type: "drop", row, value, level, setup });
+    },
+    mergeStart(left, mid, right, leftValues, rightValues) {
+      operations.push({
+        type: "mergeStart",
+        left,
+        mid,
+        right,
+        leftValues: [...leftValues],
+        rightValues: [...rightValues],
+      });
+    },
+    mergeCompare(leftIndex, rightIndex, leftValue, rightValue) {
+      operations.push({ type: "mergeCompare", leftIndex, rightIndex, leftValue, rightValue });
+    },
+    mergeTake(index, value, source, sourceIndex) {
+      array[index] = value;
+      operations.push({ type: "mergeTake", index, value, source, sourceIndex });
     },
   };
 }
@@ -125,17 +148,18 @@ function mergeRange(r: SortRecorder, left: number, mid: number, right: number) {
   let i = 0;
   let j = 0;
   let target = left;
+  r.mergeStart(left, mid, right, leftValues, rightValues);
 
   while (i < leftValues.length && j < rightValues.length) {
-    r.compare(left + i, mid + 1 + j);
+    r.mergeCompare(i, j, leftValues[i], rightValues[j]);
     if (leftValues[i] <= rightValues[j]) {
-      r.write(target++, leftValues[i++]);
+      r.mergeTake(target++, leftValues[i], "left", i++);
     } else {
-      r.write(target++, rightValues[j++]);
+      r.mergeTake(target++, rightValues[j], "right", j++);
     }
   }
-  while (i < leftValues.length) r.write(target++, leftValues[i++]);
-  while (j < rightValues.length) r.write(target++, rightValues[j++]);
+  while (i < leftValues.length) r.mergeTake(target++, leftValues[i], "left", i++);
+  while (j < rightValues.length) r.mergeTake(target++, rightValues[j], "right", j++);
 }
 
 function mergeSort(r: SortRecorder) {

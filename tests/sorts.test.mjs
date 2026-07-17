@@ -4,6 +4,7 @@ import test from "node:test";
 import { buildPianoSweep, getCompletionSweepTiming } from "../lib/completion.ts";
 import { ALGORITHM_EXPLANATIONS } from "../lib/explanations.ts";
 import { buildSortOperations } from "../lib/sorts.ts";
+import { projectGraphOperation, projectGraphOperations } from "../lib/visualization.ts";
 
 const algorithmIds = [
   "bubble", "selection", "insertion", "merge", "quick", "heap", "shell",
@@ -21,6 +22,8 @@ function applyOperations(input, operations) {
     } else if (operation.type === "write") {
       values[operation.index] = operation.value;
     } else if (operation.type === "collect") {
+      values[operation.index] = operation.value;
+    } else if (operation.type === "mergeTake") {
       values[operation.index] = operation.value;
     } else if (operation.type === "drop") {
       if (operation.setup) values.fill(0);
@@ -64,6 +67,44 @@ test("the six new visualizers handle their supported shapes and limits", () => {
           "bogo should respect its browser safety cap",
         );
       }
+    }
+  }
+});
+
+test("all graph projections stay unambiguous and finish sorted", () => {
+  for (const id of algorithmIds) {
+    const size = id === "stooge" ? 12 : id === "bogo" ? 6 : id === "bitonic" ? 16 : 24;
+    const input = Array.from({ length: size }, (_, index) => ((index * 5 + 7) % size) + 1);
+    const operations = buildSortOperations(id, input);
+    let graph = [...input];
+    for (const operation of operations) {
+      graph = projectGraphOperation(graph, operation);
+      if (id !== "bead") {
+        const visible = graph.filter((value) => value !== null);
+        assert.equal(new Set(visible).size, visible.length, `${id} should not show duplicate bars`);
+        assert.ok(visible.every((value) => input.includes(value)), `${id} should only show input values`);
+      }
+    }
+    assert.deepEqual(
+      projectGraphOperations(input, operations),
+      [...input].sort((left, right) => left - right),
+      `${id} graph should finish sorted`,
+    );
+  }
+});
+
+test("merge-based sorts expose their temporary buffers", () => {
+  for (const id of ["merge", "tim"]) {
+    const size = id === "tim" ? 48 : 8;
+    const input = Array.from({ length: size }, (_, index) => ((index * 5 + 7) % size) + 1);
+    const operations = buildSortOperations(id, input);
+    assert.ok(operations.some((operation) => operation.type === "mergeStart"), `${id} should open merge buffers`);
+    assert.ok(operations.some((operation) => operation.type === "mergeCompare"), `${id} should compare buffered values`);
+    assert.ok(operations.some((operation) => operation.type === "mergeTake"), `${id} should collect from a buffer`);
+    if (id === "merge") {
+      assert.ok(!operations.some((operation) => (
+        operation.type === "compare" || operation.type === "write"
+      )), "merge should not disguise buffered merges as direct array operations");
     }
   }
 });
@@ -151,10 +192,13 @@ test("the product contains the complete character roster and GitHub Pages workfl
   assert.match(lab, /詳しい解説を見る/);
   assert.match(lab, /aria-expanded=\{isDetailsOpen\}/);
   assert.match(lab, /AuxiliaryPanel/);
+  assert.match(lab, /LEFT BUFFER/);
+  assert.match(lab, /projectGraphOperation/);
   assert.match(lab, /カウント/);
   assert.match(lab, /振り分け/);
   assert.match(styles, /\.detail-panel\s*\{/);
   assert.match(styles, /\.auxiliary-panel\s*\{/);
+  assert.match(styles, /\.merge-buffers\s*\{/);
   assert.match(styles, /\.character-icon\s*\{[^}]*display:\s*block/s);
   assert.match(styles, /grid-template-columns:\s*minmax\(0, 1fr\) 100px/);
   assert.ok(newCharacters.byteLength > 50_000);
