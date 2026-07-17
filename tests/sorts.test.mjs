@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { buildPianoSweep, getCompletionSweepTiming } from "../lib/completion.ts";
 import { buildSortOperations } from "../lib/sorts.ts";
 
 const algorithmIds = [
@@ -61,6 +62,22 @@ test("the six new visualizers handle their supported shapes and limits", () => {
   }
 });
 
+test("the completion sweep climbs from the smallest bar to the largest", () => {
+  for (const size of [8, 48, 160]) {
+    const notes = buildPianoSweep(size);
+    const timing = getCompletionSweepTiming(size);
+    assert.equal(notes[0].barIndex, 0);
+    assert.equal(notes.at(-1).barIndex, size - 1);
+    assert.ok(notes.length <= 29);
+    assert.ok(timing.durationMs < 1900);
+    for (let index = 1; index < notes.length; index++) {
+      assert.ok(notes[index].barIndex > notes[index - 1].barIndex);
+      assert.ok(notes[index].frequency > notes[index - 1].frequency);
+      assert.ok(notes[index].delayMs > notes[index - 1].delayMs);
+    }
+  }
+});
+
 test("the product contains the complete character roster and GitHub Pages workflow", async () => {
   const [algorithms, workflow, page, lab, styles, newCharacters] = await Promise.all([
     readFile(new URL("../lib/algorithms.ts", import.meta.url), "utf8"),
@@ -77,7 +94,8 @@ test("the product contains the complete character roster and GitHub Pages workfl
   assert.doesNotMatch(page, /codex-preview|SkeletonPreview/);
   assert.doesNotMatch(lab, /Math\.max\(2\.5/);
   assert.match(lab, /height: `\$\{\(value \/ maxValue\) \* 100\}%`/);
-  assert.match(lab, /playCompletionChime/);
+  assert.match(lab, /playCompletionSweep/);
+  assert.match(lab, /strikePianoKey/);
   assert.match(lab, /strikeSteelPan/);
   assert.match(lab, /sort-characters-new\.webp/);
   assert.match(lab, /allowedCounts/);

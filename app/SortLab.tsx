@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ALGORITHMS, CATEGORY_LABELS, type Algorithm, type AlgorithmCategory } from "@/lib/algorithms";
+import { buildPianoSweep, getCompletionSweepTiming } from "@/lib/completion";
 import { buildSortOperations, type SortOperation } from "@/lib/sorts";
 
 type RunStatus = "idle" | "running" | "paused" | "done";
@@ -100,6 +101,38 @@ function strikeSteelPan(
   });
 }
 
+function strikePianoKey(
+  context: AudioContext,
+  frequency: number,
+  start: number,
+  output: AudioNode,
+  volume = 0.017,
+  duration = 0.72,
+) {
+  const partials = [
+    { ratio: 1, level: 1, decay: 1 },
+    { ratio: 2.002, level: 0.3, decay: 0.68 },
+    { ratio: 3.997, level: 0.1, decay: 0.42 },
+  ];
+
+  partials.forEach(({ ratio, level, decay }) => {
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    const pitch = frequency * ratio;
+    const end = start + duration * decay;
+    oscillator.type = "sine";
+    oscillator.frequency.setValueAtTime(pitch * 1.004, start);
+    oscillator.frequency.exponentialRampToValueAtTime(pitch, start + 0.012);
+    gain.gain.setValueAtTime(0.0001, start);
+    gain.gain.exponentialRampToValueAtTime(volume * level, start + 0.003);
+    gain.gain.exponentialRampToValueAtTime(volume * level * 0.42, start + 0.055);
+    gain.gain.exponentialRampToValueAtTime(0.0001, end);
+    oscillator.connect(gain).connect(output);
+    oscillator.start(start);
+    oscillator.stop(end + 0.03);
+  });
+}
+
 export default function SortLab() {
   const [selectedId, setSelectedId] = useState("quick");
   const [filter, setFilter] = useState<Filter>("all");
@@ -133,6 +166,10 @@ export default function SortLab() {
   const startedAtRef = useRef(0);
   const audioRef = useRef<AudioContext | null>(null);
   const lastToneRef = useRef(0);
+  const completionAudioRef = useRef<{
+    output: GainNode;
+    disconnectTimer: ReturnType<typeof setTimeout>;
+  } | null>(null);
 
   useEffect(() => { speedRef.current = speed; }, [speed]);
   useEffect(() => { soundRef.current = sound; }, [sound]);
@@ -174,28 +211,47 @@ export default function SortLab() {
     strikeSteelPan(context, frequency, context.currentTime);
   }, [count, getAudioContext]);
 
-  const playCompletionChime = useCallback(() => {
+  const cancelCompletionSweep = useCallback(() => {
+    const current = completionAudioRef.current;
+    if (!current) return;
+    clearTimeout(current.disconnectTimer);
+    current.output.disconnect();
+    completionAudioRef.current = null;
+  }, []);
+
+  const playCompletionSweep = useCallback((size: number) => {
+    cancelCompletionSweep();
     if (!soundRef.current) return;
     const context = getAudioContext();
     if (!context) return;
-    const now = context.currentTime;
-    const delay = context.createDelay();
-    const echo = context.createGain();
-    delay.delayTime.value = 0.18;
-    echo.gain.value = 0.14;
-    delay.connect(echo).connect(context.destination);
-    const notes = [587.33, 739.99, 880, 1174.66, 1318.51];
-    notes.forEach((frequency, index) => {
-      strikeSteelPan(
+    const notes = buildPianoSweep(size);
+    const { durationMs } = getCompletionSweepTiming(size);
+    const output = context.createGain();
+    const start = context.currentTime + 0.035;
+    output.gain.setValueAtTime(0.86, start);
+    output.connect(context.destination);
+
+    notes.forEach((note, index) => {
+      const isLast = index === notes.length - 1;
+      strikePianoKey(
         context,
-        frequency,
-        now + index * 0.11,
-        index === notes.length - 1 ? 0.045 : 0.034,
-        0.82,
-        [delay],
+        note.frequency,
+        start + note.delayMs / 1000,
+        output,
+        isLast ? 0.023 : 0.016,
+        isLast ? 1.18 : 0.72,
       );
     });
-  }, [getAudioContext]);
+
+    const releaseAt = start + durationMs / 1000;
+    output.gain.setValueAtTime(0.86, releaseAt);
+    output.gain.exponentialRampToValueAtTime(0.0001, releaseAt + 0.72);
+    const disconnectTimer = setTimeout(() => {
+      output.disconnect();
+      if (completionAudioRef.current?.output === output) completionAudioRef.current = null;
+    }, durationMs + 900);
+    completionAudioRef.current = { output, disconnectTimer };
+  }, [cancelCompletionSweep, getAudioContext]);
 
   const finishRun = useCallback(() => {
     cancelTimer();
@@ -203,8 +259,8 @@ export default function SortLab() {
     setActiveType(null);
     setElapsed(Math.max(0, performance.now() - startedAtRef.current));
     setRunStatus("done");
-    playCompletionChime();
-  }, [cancelTimer, playCompletionChime, setRunStatus]);
+    playCompletionSweep(valuesRef.current.length);
+  }, [cancelTimer, playCompletionSweep, setRunStatus]);
 
   const applyOperation = useCallback((operation: SortOperation) => {
     const next = [...valuesRef.current];
@@ -257,9 +313,13 @@ export default function SortLab() {
     };
   }, [applyOperation, finishRun]);
 
-  useEffect(() => () => cancelTimer(), [cancelTimer]);
+  useEffect(() => () => {
+    cancelTimer();
+    cancelCompletionSweep();
+  }, [cancelCompletionSweep, cancelTimer]);
 
   const prepare = useCallback((source: number[]) => {
+    cancelCompletionSweep();
     const operations = buildSortOperations(algorithm.id, source);
     operationsRef.current = operations;
     setOperationCount(operations.length);
@@ -270,7 +330,7 @@ export default function SortLab() {
     setActive([]);
     setActiveType(null);
     startedAtRef.current = performance.now();
-  }, [algorithm.id]);
+  }, [algorithm.id, cancelCompletionSweep]);
 
   const start = () => {
     if (statusRef.current === "paused") {
@@ -310,6 +370,7 @@ export default function SortLab() {
 
   const resetToInitial = useCallback(() => {
     cancelTimer();
+    cancelCompletionSweep();
     const next = [...initialRef.current];
     valuesRef.current = next;
     setValues(next);
@@ -322,10 +383,11 @@ export default function SortLab() {
     setActive([]);
     setActiveType(null);
     setRunStatus("idle");
-  }, [cancelTimer, setRunStatus]);
+  }, [cancelCompletionSweep, cancelTimer, setRunStatus]);
 
   const shuffle = useCallback((size = count) => {
     cancelTimer();
+    cancelCompletionSweep();
     const next = shuffledValues(size);
     initialRef.current = next;
     valuesRef.current = next;
@@ -339,7 +401,7 @@ export default function SortLab() {
     setActive([]);
     setActiveType(null);
     setRunStatus("idle");
-  }, [cancelTimer, count, setRunStatus]);
+  }, [cancelCompletionSweep, cancelTimer, count, setRunStatus]);
 
   const changeCount = (nextCount: number) => {
     const normalized = normalizeCountForAlgorithm(nextCount, algorithm);
@@ -369,6 +431,7 @@ export default function SortLab() {
   const currentMax = allowedCounts?.at(-1) ?? algorithm.maxN ?? 160;
   const currentMin = allowedCounts?.[0] ?? Math.min(8, currentMax);
   const countSliderValue = allowedCounts ? Math.max(0, allowedCounts.indexOf(count)) : count;
+  const completionTiming = getCompletionSweepTiming(count);
 
   return (
     <main className="site-shell">
@@ -444,7 +507,13 @@ export default function SortLab() {
               <div className="legend" aria-label="色の凡例"><span><i className="legend-normal" />未処理</span><span><i className="legend-compare" />比較</span><span><i className="legend-move" />交換・配置</span></div>
             </div>
 
-            <div className={`bar-stage ${status === "done" ? "is-complete" : ""}`}>
+            <div
+              className={`bar-stage ${status === "done" ? "is-complete" : ""}`}
+              style={{
+                "--finish-step": `${completionTiming.stepMs}ms`,
+                "--finish-pulse": `${completionTiming.pulseMs}ms`,
+              } as React.CSSProperties}
+            >
               <div className="grid-lines" aria-hidden="true"><i /><i /><i /><i /></div>
               <div className="bars" aria-label={`${count}本の棒グラフ`}>
                 {values.map((value, index) => {
@@ -499,9 +568,18 @@ export default function SortLab() {
                 <input type="range" min="1" max="100" step="1" value={speed} onChange={(event) => setSpeed(Number(event.target.value))} />
                 <small><span>SLOW</span><span>FAST</span></small>
               </label>
-              <button className={`sound-toggle ${sound ? "is-on" : ""}`} onClick={() => setSound((value) => !value)} aria-pressed={sound}>
+              <button
+                className={`sound-toggle ${sound ? "is-on" : ""}`}
+                onClick={() => setSound((value) => {
+                  const next = !value;
+                  soundRef.current = next;
+                  if (!next) cancelCompletionSweep();
+                  return next;
+                })}
+                aria-pressed={sound}
+              >
                 <span className="sound-icon" aria-hidden="true">{sound ? "♪" : "×"}</span>
-                <span><b>サウンド</b><small>{sound ? "ON・軽やかなスチールドラム" : "OFF・ミュート中"}</small></span>
+                <span><b>サウンド</b><small>{sound ? "ON・操作音＋ピアノの完了演出" : "OFF・ミュート中"}</small></span>
                 <i />
               </button>
             </div>

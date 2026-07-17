@@ -642,15 +642,10 @@ input:focus-visible {
 }
 
 .bar-stage.is-complete .bar {
-  animation: complete-glow 700ms ease both;
-  animation-delay: calc(var(--bar-index) * 7ms);
+  animation: piano-key-sweep var(--finish-pulse, 260ms) ease-out;
+  animation-delay: calc(var(--bar-index) * var(--finish-step, 20ms));
   background: linear-gradient(180deg, #bbffd9, #72f5b1 52%, #239f75);
   box-shadow: 0 0 11px rgba(114, 245, 177, 0.22);
-}
-
-@keyframes complete-glow {
-  0% { filter: brightness(2); transform: translateY(-8px); }
-  100% { filter: brightness(1); transform: translateY(0); }
 }
 
 .stage-corner {
@@ -1298,9 +1293,19 @@ footer small {
   box-shadow: none;
 }
 
-@keyframes complete-glow {
-  0% { filter: brightness(1.14); transform: translateY(-5px); }
-  100% { filter: brightness(1); transform: translateY(0); }
+@keyframes piano-key-sweep {
+  0%, 100% {
+    background: linear-gradient(180deg, #abd4ae, #7eb88b 54%, #5c956b);
+    box-shadow: none;
+    filter: brightness(1);
+    transform: translateY(0);
+  }
+  38% {
+    background: linear-gradient(180deg, #fffdf4, #f4dfaa 58%, #d7b86b);
+    box-shadow: 0 4px 13px rgba(206, 171, 91, 0.3);
+    filter: brightness(1.08);
+    transform: translateY(-7px);
+  }
 }
 
 .stage-corner {
