@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { buildPianoSweep, getCompletionSweepTiming } from "../lib/completion.ts";
+import { ALGORITHM_EXPLANATIONS } from "../lib/explanations.ts";
 import { buildSortOperations } from "../lib/sorts.ts";
 
 const algorithmIds = [
@@ -78,6 +79,18 @@ test("the completion sweep climbs from the smallest bar to the largest", () => {
   }
 });
 
+test("every algorithm has a complete detailed learning guide", () => {
+  assert.deepEqual(Object.keys(ALGORITHM_EXPLANATIONS).sort(), [...algorithmIds].sort());
+  for (const id of algorithmIds) {
+    const guide = ALGORITHM_EXPLANATIONS[id];
+    assert.ok(guide.overview.length >= 40, `${id} should have a useful overview`);
+    assert.ok(guide.steps.length >= 3, `${id} should explain its process in steps`);
+    assert.ok(guide.watch.length >= 25, `${id} should include a visual observation point`);
+    assert.ok(guide.goodFor.length >= 25, `${id} should explain where it works well`);
+    assert.ok(guide.caution.length >= 25, `${id} should explain its tradeoffs`);
+  }
+});
+
 test("the product contains the complete character roster and GitHub Pages workflow", async () => {
   const [algorithms, workflow, page, lab, styles, newCharacters] = await Promise.all([
     readFile(new URL("../lib/algorithms.ts", import.meta.url), "utf8"),
@@ -99,6 +112,9 @@ test("the product contains the complete character roster and GitHub Pages workfl
   assert.match(lab, /strikeSteelPan/);
   assert.match(lab, /sort-characters-new\.webp/);
   assert.match(lab, /allowedCounts/);
+  assert.match(lab, /詳しい解説を見る/);
+  assert.match(lab, /aria-expanded=\{isDetailsOpen\}/);
+  assert.match(styles, /\.detail-panel\s*\{/);
   assert.match(styles, /\.character-icon\s*\{[^}]*display:\s*block/s);
   assert.match(styles, /grid-template-columns:\s*minmax\(0, 1fr\) 100px/);
   assert.ok(newCharacters.byteLength > 50_000);

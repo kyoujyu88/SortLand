@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ALGORITHMS, CATEGORY_LABELS, type Algorithm, type AlgorithmCategory } from "@/lib/algorithms";
 import { buildPianoSweep, getCompletionSweepTiming } from "@/lib/completion";
+import { ALGORITHM_EXPLANATIONS } from "@/lib/explanations";
 import { buildSortOperations, type SortOperation } from "@/lib/sorts";
 
 type RunStatus = "idle" | "running" | "paused" | "done";
@@ -147,8 +148,10 @@ export default function SortLab() {
   const [operationCount, setOperationCount] = useState(0);
   const [metrics, setMetrics] = useState({ comparisons: 0, moves: 0 });
   const [elapsed, setElapsed] = useState(0);
+  const [isDetailsOpen, setIsDetailsOpen] = useState(false);
 
   const algorithm = ALGORITHMS.find((item) => item.id === selectedId) ?? ALGORITHMS[0];
+  const explanation = ALGORITHM_EXPLANATIONS[algorithm.id];
   const filteredAlgorithms = useMemo(
     () => ALGORITHMS.filter((item) => filter === "all" || item.category === filter),
     [filter],
@@ -413,6 +416,7 @@ export default function SortLab() {
   const chooseAlgorithm = (next: Algorithm) => {
     if (next.id === algorithm.id) return;
     cancelTimer();
+    setIsDetailsOpen(false);
     setSelectedId(next.id);
     const nextCount = normalizeCountForAlgorithm(count, next);
     if (nextCount !== count) {
@@ -590,12 +594,68 @@ export default function SortLab() {
               <span className="eyebrow">HOW THEY SORT</span>
               <h2>{algorithm.character}の作戦</h2>
               <p>{algorithm.how}</p>
+              <button
+                className="details-toggle"
+                type="button"
+                aria-expanded={isDetailsOpen}
+                aria-controls={`algorithm-details-${algorithm.id}`}
+                onClick={() => setIsDetailsOpen((value) => !value)}
+              >
+                <span>{isDetailsOpen ? "詳しい解説を閉じる" : "詳しい解説を見る"}</span>
+                <i aria-hidden="true">{isDetailsOpen ? "−" : "+"}</i>
+              </button>
             </article>
             <article className="complexity-card">
               <span className="eyebrow">PERFORMANCE</span>
               <div className="complexity-table"><span>平均時間<strong>{algorithm.average}</strong></span><span>最悪時間<strong>{algorithm.worst}</strong></span><span>追加領域<strong>{algorithm.memory}</strong></span></div>
             </article>
           </section>
+
+          {isDetailsOpen && (
+            <section
+              className="detail-panel"
+              id={`algorithm-details-${algorithm.id}`}
+              key={algorithm.id}
+              aria-label={`${algorithm.name}の詳しい解説`}
+              style={{ "--detail-accent": algorithm.accent } as React.CSSProperties}
+            >
+              <header className="detail-panel__header">
+                <div>
+                  <span className="eyebrow">DEEP DIVE</span>
+                  <h2>{algorithm.name}を、もう少し詳しく</h2>
+                </div>
+                <span className="detail-panel__number">No.{String(algorithm.icon + 1).padStart(2, "0")}</span>
+              </header>
+              <p className="detail-panel__overview">{explanation.overview}</p>
+              <div className="detail-panel__body">
+                <article className="detail-steps">
+                  <h3>処理の流れ</h3>
+                  <ol>
+                    {explanation.steps.map((step, index) => (
+                      <li key={step}><span>{index + 1}</span><p>{step}</p></li>
+                    ))}
+                  </ol>
+                </article>
+                <div className="detail-insights">
+                  <article>
+                    <span>WATCH</span>
+                    <h3>観察ポイント</h3>
+                    <p>{explanation.watch}</p>
+                  </article>
+                  <article>
+                    <span>GOOD AT</span>
+                    <h3>向いている場面</h3>
+                    <p>{explanation.goodFor}</p>
+                  </article>
+                  <article className="detail-insight--caution">
+                    <span>CAUTION</span>
+                    <h3>注意したいこと</h3>
+                    <p>{explanation.caution}</p>
+                  </article>
+                </div>
+              </div>
+            </section>
+          )}
         </section>
       </div>
 
