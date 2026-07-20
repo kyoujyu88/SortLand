@@ -173,7 +173,7 @@ export const ALGORITHMS: Algorithm[] = [
     description: "増加列と減少列を組み合わせたビトニック列を作り、規則正しい比較ネットワークで昇順へ変換します。",
     how: "比較する相手が段階ごとに決まっているため、左右対称の波が何度も走ります。標準形に合わせ、要素数は2の累乗から選びます。",
     average: "O(n log² n)", worst: "O(n log² n)", memory: "O(1)", stable: false,
-    maxN: 128, allowedN: [8, 16, 32, 64, 128],
+    maxN: 256, allowedN: [8, 16, 32, 64, 128, 256],
   },
   {
     id: "circle", name: "サークルソート", english: "CIRCLE SORT", character: "サーラ・リング",

@@ -2064,3 +2064,63 @@ footer > span {
   .merge-buffers { grid-template-columns: 1fr; }
   .output-buffer { grid-template-columns: 40px minmax(0, 1fr); }
 }
+
+/* ---- Higher element counts: keep dense graphs crisp and legible ---- */
+/* Bar width and gap are set inline from the roster size; here we shed the
+   glossy shadow/edge and per-bar transitions once bars get thin so dense
+   sorts stay sharp and smooth. */
+.bars--dense .bar,
+.bars--ultra .bar {
+  border-radius: 2px 2px 0 0;
+  box-shadow: none;
+  transition: none;
+}
+
+.bars--dense .bar::after,
+.bars--ultra .bar::after {
+  display: none;
+}
+
+.bars--ultra .bar {
+  border-radius: 1px 1px 0 0;
+}
+
+/* Larger, higher-contrast value labels at the counts where they still fit. */
+.bar span {
+  color: #4a5b60;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  margin-top: -15px;
+}
+
+.bars--packed .bar span {
+  font-size: 8px;
+  margin-top: -13px;
+}
+
+/* Non-colour cue: the legend chip for the current operation lights up so the
+   active category reads even when bar hues are hard to tell apart. */
+.legend span {
+  border-radius: 999px;
+  padding: 2px 6px;
+  transition: background 120ms ease, color 120ms ease, transform 120ms ease;
+}
+
+.legend span.is-active {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  color: var(--ink);
+  font-weight: 700;
+  transform: translateY(-1px);
+}
+
+.legend span.is-active i {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .legend span,
+  .legend span.is-active {
+    transform: none;
+  }
+}
