@@ -82,6 +82,31 @@ type MergeAuxiliary = {
 type AuxiliaryState = CountAuxiliary | BucketAuxiliary | BeadAuxiliary | SlotAuxiliary | ChainAuxiliary | MergeAuxiliary;
 
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+const DEFAULT_MAX_N = 256;
+
+// Bars must fill the stage without clipping at any element count, so the gap and
+// minimum bar width shrink as the roster grows. Above these thresholds we also
+// drop per-bar shadows/transitions to keep dense views crisp and smooth.
+function graphDensity(count: number) {
+  if (count > 200) return { tier: "ultra", gap: 0, minBar: 0 };
+  if (count > 120) return { tier: "dense", gap: 1, minBar: 1 };
+  if (count > 60) return { tier: "packed", gap: 2, minBar: 2 };
+  return { tier: "roomy", gap: 3, minBar: 2 };
+}
+
+const ACTIVE_LEGEND_CATEGORY: Partial<Record<SortOperation["type"], string>> = {
+  compare: "compare",
+  mergeCompare: "compare",
+  swap: "move",
+  write: "move",
+  shuffle: "move",
+  slotWrite: "move",
+  count: "auxiliary",
+  distribute: "auxiliary",
+  drop: "auxiliary",
+  collect: "collect",
+  mergeTake: "collect",
+};
 
 function createMetrics(): SortMetrics {
   return {
@@ -118,7 +143,7 @@ function normalizeCountForAlgorithm(value: number, algorithm: Algorithm) {
       Math.abs(option - value) < Math.abs(nearest - value) ? option : nearest
     ));
   }
-  const maximum = algorithm.maxN ?? 160;
+  const maximum = algorithm.maxN ?? DEFAULT_MAX_N;
   const minimum = Math.min(8, maximum);
   return Math.max(minimum, Math.min(maximum, value));
 }
@@ -852,8 +877,11 @@ export default function SortLab() {
   const legendShowsCompare = !["counting", "radix", "bucket", "bead", "americanFlag", "sleep"].includes(algorithm.id);
   const legendShowsMove = !["counting", "radix", "bucket", "bead", "patience"].includes(algorithm.id);
   const statusLabel = status === "running" ? "ソート中" : status === "paused" ? "一時停止" : status === "done" ? "完了" : "準備OK";
+  const density = graphDensity(count);
+  const showBarLabels = count <= 40;
+  const activeCategory = activeType ? ACTIVE_LEGEND_CATEGORY[activeType] ?? null : null;
   const allowedCounts = algorithm.allowedN;
-  const currentMax = allowedCounts?.at(-1) ?? algorithm.maxN ?? 160;
+  const currentMax = allowedCounts?.at(-1) ?? algorithm.maxN ?? DEFAULT_MAX_N;
   const currentMin = allowedCounts?.[0] ?? Math.min(8, currentMax);
   const countSliderValue = allowedCounts ? Math.max(0, allowedCounts.indexOf(count)) : count;
   const completionTiming = getCompletionSweepTiming(count);
@@ -931,10 +959,10 @@ export default function SortLab() {
               </div>
               <div className="legend" aria-label="色の凡例">
                 <span><i className="legend-normal" />未処理</span>
-                {legendShowsAux && <span><i className="legend-auxiliary" />{auxiliaryActionLabel}</span>}
-                {legendShowsCollect && <span><i className="legend-collect" />回収</span>}
-                {legendShowsCompare && <span><i className="legend-compare" />比較</span>}
-                {legendShowsMove && <span><i className="legend-move" />交換・配置</span>}
+                {legendShowsAux && <span className={activeCategory === "auxiliary" ? "is-active" : ""}><i className="legend-auxiliary" />{auxiliaryActionLabel}</span>}
+                {legendShowsCollect && <span className={activeCategory === "collect" ? "is-active" : ""}><i className="legend-collect" />回収</span>}
+                {legendShowsCompare && <span className={activeCategory === "compare" ? "is-active" : ""}><i className="legend-compare" />比較</span>}
+                {legendShowsMove && <span className={activeCategory === "move" ? "is-active" : ""}><i className="legend-move" />交換・配置</span>}
               </div>
             </div>
 
@@ -946,15 +974,22 @@ export default function SortLab() {
               } as React.CSSProperties}
             >
               <div className="grid-lines" aria-hidden="true"><i /><i /><i /><i /></div>
-              <div className="bars" aria-label={`${count}本の棒グラフ`}>
+              <div
+                className={`bars bars--${density.tier}`}
+                aria-label={`${count}本の棒グラフ`}
+                style={{ gap: `${density.gap}px` }}
+              >
                 {displayValues.map((value, index) => {
                   const isActive = active.includes(index);
                   const activeClass = isActive ? `is-${activeType}` : "";
                   const displayValue = value ?? 0;
                   return (
                     <div className={`bar-wrap ${activeClass} ${value === null ? "is-empty" : ""}`} key={index} style={{ width: `${100 / count}%` }}>
-                      <div className="bar" style={{ height: `${(displayValue / maxValue) * 100}%`, "--bar-index": index } as React.CSSProperties}>
-                        {count <= 32 && value !== null && <span>{value}</span>}
+                      <div
+                        className="bar"
+                        style={{ height: `${(displayValue / maxValue) * 100}%`, minWidth: `${density.minBar}px`, "--bar-index": index } as React.CSSProperties}
+                      >
+                        {showBarLabels && value !== null && <span>{value}</span>}
                       </div>
                     </div>
                   );
