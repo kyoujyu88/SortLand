@@ -15,6 +15,8 @@ type SlotSetup = {
   slotCount: number;
 };
 
+type ChainPhase = "main" | "insert";
+
 export type SortOperation =
   | { type: "compare"; indices: [number, number] }
   | { type: "swap"; indices: [number, number] }
@@ -25,6 +27,7 @@ export type SortOperation =
   | { type: "collect"; index: number; value: number; bucket: number }
   | { type: "drop"; row: number; value: number; level: number; setup?: BeadSetup }
   | { type: "slotWrite"; slot: number; value: number | null; setup?: SlotSetup }
+  | { type: "chainState"; values: number[]; activeValue: number; phase: ChainPhase }
   | { type: "mergeStart"; left: number; mid: number; right: number; leftValues: number[]; rightValues: number[] }
   | { type: "mergeCompare"; leftIndex: number; rightIndex: number; leftValue: number; rightValue: number }
   | { type: "mergeTake"; index: number; value: number; source: "left" | "right"; sourceIndex: number };
@@ -41,6 +44,7 @@ type SortRecorder = {
   collect: (index: number, value: number, bucket: number) => void;
   drop: (row: number, value: number, level: number, setup?: BeadSetup) => void;
   slotWrite: (slot: number, value: number | null, setup?: SlotSetup) => void;
+  chainState: (values: number[], activeValue: number, phase: ChainPhase) => void;
   mergeStart: (left: number, mid: number, right: number, leftValues: number[], rightValues: number[]) => void;
   mergeCompare: (leftIndex: number, rightIndex: number, leftValue: number, rightValue: number) => void;
   mergeTake: (index: number, value: number, source: "left" | "right", sourceIndex: number) => void;
@@ -85,6 +89,9 @@ function createRecorder(input: number[]): SortRecorder {
     },
     slotWrite(slot, value, setup) {
       operations.push({ type: "slotWrite", slot, value, setup });
+    },
+    chainState(values, activeValue, phase) {
+      operations.push({ type: "chainState", values: [...values], activeValue, phase });
     },
     mergeStart(left, mid, right, leftValues, rightValues) {
       operations.push({
@@ -1110,6 +1117,7 @@ function mergeInsertionSort(r: SortRecorder) {
     pairs.forEach((pair) => partnerOf.set(pair.hi, pair.lo));
 
     const chain: TrackedItem[] = [partnerOf.get(sortedHighs[0])!, ...sortedHighs];
+    r.chainState(chain.map((item) => item.value), chain[0].value, "main");
     const pending: Array<{ lo: TrackedItem; hi: TrackedItem | null }> = sortedHighs
       .slice(1)
       .map((hi) => ({ lo: partnerOf.get(hi)!, hi }));
@@ -1139,6 +1147,7 @@ function mergeInsertionSort(r: SortRecorder) {
         else low = mid + 1;
       }
       chain.splice(low, 0, lo);
+      r.chainState(chain.map((item) => item.value), lo.value, "insert");
     }
     return chain;
   }

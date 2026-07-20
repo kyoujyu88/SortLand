@@ -131,6 +131,17 @@ test("the expansion sorts expose their signature operations", () => {
     countComparisons("mergeInsertion") <= size * Math.log2(size),
     "merge-insertion should stay close to the comparison lower bound",
   );
+  const mergeInsertionChains = operationsOf("mergeInsertion")
+    .filter((operation) => operation.type === "chainState");
+  assert.ok(mergeInsertionChains.length > 1, "merge-insertion should show its main-chain growth");
+  for (const operation of mergeInsertionChains) {
+    assert.deepEqual(
+      operation.values,
+      [...operation.values].sort((left, right) => left - right),
+      "every visible merge-insertion main chain should remain sorted",
+    );
+  }
+  assert.equal(mergeInsertionChains.at(-1).values.length, size);
 
   const sortedInput = Array.from({ length: size }, (_, index) => index + 1);
   const smoothSorted = buildSortOperations("smooth", sortedInput).length;
@@ -269,11 +280,13 @@ test("the product contains the complete character roster and GitHub Pages workfl
   assert.match(lab, /AuxiliaryPanel/);
   assert.match(lab, /LEFT BUFFER/);
   assert.match(lab, /projectGraphOperation/);
+  assert.match(lab, /MAIN CHAIN/);
   assert.match(lab, /カウント/);
   assert.match(lab, /振り分け/);
   assert.match(styles, /\.detail-panel\s*\{/);
   assert.match(styles, /\.auxiliary-panel\s*\{/);
   assert.match(styles, /\.merge-buffers\s*\{/);
+  assert.match(styles, /\.main-chain\s*\{/);
   assert.match(styles, /\.character-icon\s*\{[^}]*display:\s*block/s);
   assert.match(styles, /grid-template-columns:\s*minmax\(0, 1fr\) 100px/);
   assert.ok(newCharacters.byteLength > 50_000);
