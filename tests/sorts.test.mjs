@@ -176,6 +176,27 @@ test("all graph projections stay unambiguous and finish sorted", () => {
   }
 });
 
+test("no visualizer drops bars into empty gaps", () => {
+  // Bars are a full permutation of the input, so the projected graph should
+  // never leave a slot empty. bead is the only exception: it fills its rack
+  // with zero-height beads on purpose.
+  for (const id of algorithmIds) {
+    if (id === "bead") continue;
+    for (const size of [7, 16, 24, 32]) {
+      const input = Array.from({ length: size }, (_, index) => ((index * 17 + 11) % size) + 1);
+      const operations = buildSortOperations(id, input);
+      let graph = [...input];
+      for (const operation of operations) {
+        graph = projectGraphOperation(graph, operation);
+        assert.ok(
+          graph.every((value) => value !== null),
+          `${id} (n=${size}) should never blank out a bar mid-run`,
+        );
+      }
+    }
+  }
+});
+
 test("merge-based sorts expose their temporary buffers", () => {
   for (const id of ["merge", "tim"]) {
     const size = id === "tim" ? 48 : 8;
