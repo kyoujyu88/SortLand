@@ -56,6 +56,14 @@ type SlotAuxiliary = {
   activeSlot: number;
 };
 
+type ChainAuxiliary = {
+  kind: "chain";
+  title: string;
+  values: number[];
+  activeValue: number;
+  phase: "main" | "insert";
+};
+
 type MergeAuxiliary = {
   kind: "merge";
   title: string;
@@ -70,7 +78,7 @@ type MergeAuxiliary = {
   activeRight: number | null;
 };
 
-type AuxiliaryState = CountAuxiliary | BucketAuxiliary | BeadAuxiliary | SlotAuxiliary | MergeAuxiliary;
+type AuxiliaryState = CountAuxiliary | BucketAuxiliary | BeadAuxiliary | SlotAuxiliary | ChainAuxiliary | MergeAuxiliary;
 
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 
@@ -162,6 +170,8 @@ function AuxiliaryPanel({ state }: { state: AuxiliaryState }) {
                 ? `レベル ${state.level} / ${state.maxLevel}`
                 : state.kind === "slots"
                   ? "すき間を保ちながら挿入中"
+                  : state.kind === "chain"
+                    ? state.phase === "main" ? "ペアの勝者から主鎖を作成" : "敗者を二分探索で挿入"
                   : `区間 ${state.left + 1}〜${state.right + 1} を結合中`}
         </small>
       </header>
@@ -219,6 +229,19 @@ function AuxiliaryPanel({ state }: { state: AuxiliaryState }) {
         </div>
       )}
 
+      {state.kind === "chain" && (
+        <div className="main-chain">
+          <span>MAIN CHAIN</span>
+          <div>
+            {state.values.map((value, index) => (
+              <i className={value === state.activeValue ? "is-active" : ""} key={`${value}-${index}`}>
+                {value}
+              </i>
+            ))}
+          </div>
+        </div>
+      )}
+
       {state.kind === "merge" && (
         <div className="merge-buffers">
           <div>
@@ -246,7 +269,7 @@ function AuxiliaryPanel({ state }: { state: AuxiliaryState }) {
         </div>
       )}
 
-      {state.kind !== "beads" && state.kind !== "slots" && (
+      {state.kind !== "beads" && state.kind !== "slots" && state.kind !== "chain" && (
         <div className="output-buffer">
           <span>OUTPUT</span>
           <div>
@@ -596,6 +619,17 @@ export default function SortLab() {
         slots[operation.slot] = operation.value;
         return { ...base, slots, activeSlot: operation.slot };
       });
+    } else if (operation.type === "chainState") {
+      setActive([]);
+      toneValue = operation.activeValue;
+      setMetrics((current) => ({ ...current, moves: current.moves + 1 }));
+      setAuxiliary({
+        kind: "chain",
+        title: "ヤコブスタール順で主鎖へ挿入",
+        values: operation.values,
+        activeValue: operation.activeValue,
+        phase: operation.phase,
+      });
     } else if (operation.type === "mergeStart") {
       setActive([]);
       toneValue = operation.leftValues[0] ?? operation.rightValues[0] ?? 1;
@@ -815,8 +849,9 @@ export default function SortLab() {
             ? { firstLabel: "カウント", firstValue: metrics.counts, secondLabel: "移動", secondValue: metrics.moves }
             : { firstLabel: "比較", firstValue: metrics.comparisons, secondLabel: "移動", secondValue: metrics.moves };
   const auxiliaryActionLabel = ["counting", "flash", "americanFlag"].includes(algorithm.id) ? "カウント"
-    : algorithm.id === "bead" ? "落下" : "振り分け";
-  const legendShowsAux = algorithm.category === "linear" || algorithm.id === "patience";
+    : algorithm.id === "bead" ? "落下"
+      : algorithm.id === "mergeInsertion" ? "主鎖" : "振り分け";
+  const legendShowsAux = algorithm.category === "linear" || algorithm.id === "patience" || algorithm.id === "mergeInsertion";
   const legendShowsCollect = ["counting", "radix", "bucket", "patience"].includes(algorithm.id);
   const legendShowsCompare = !["counting", "radix", "bucket", "bead", "americanFlag", "sleep"].includes(algorithm.id);
   const legendShowsMove = !["counting", "radix", "bucket", "bead", "patience"].includes(algorithm.id);
