@@ -933,9 +933,9 @@ export default function SortLab() {
         </aside>
 
         <section className="lab" aria-label={`${algorithm.name}の可視化`}>
-          <div className="algorithm-hero" key={algorithm.id} style={{ "--accent": algorithm.accent } as React.CSSProperties}>
+          <div className="algorithm-hero" style={{ "--accent": algorithm.accent } as React.CSSProperties}>
             <div className="hero-character"><CharacterIcon algorithm={algorithm} size="large" /><span className="character-level">No.{String(algorithm.icon + 1).padStart(2, "0")}</span></div>
-            <div className="hero-copy">
+            <div className="hero-copy" key={algorithm.id}>
               <div className="hero-kicker"><span>{algorithm.english}</span><i /> <span>{CATEGORY_LABELS[algorithm.category]}</span></div>
               <h1>{algorithm.name}</h1>
               <p className="tagline">{algorithm.tagline}</p>
