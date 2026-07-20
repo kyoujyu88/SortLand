@@ -17,21 +17,33 @@ NEW_CHARACTERS = [
     "tree-girl.png",
 ]
 
+EXTRA_CHARACTERS = [
+    "library-girl.png",
+    "patience-girl.png",
+    "dualpivot-girl.png",
+    "smooth-girl.png",
+    "sleep-girl.png",
+    "flash-girl.png",
+    "americanflag-girl.png",
+    "mergeinsertion-girl.png",
+    "slow-girl.png",
+]
 
-def main() -> None:
+
+def build_sheet(characters: list[str], columns: int, rows: int, basename: str) -> None:
     character_dir = ROOT / "assets" / "characters"
-    png_output = ROOT / "assets" / "sort-characters-new-source.png"
-    webp_output = ROOT / "public" / "sort-characters-new.webp"
+    png_output = ROOT / "assets" / f"{basename}-source.png"
+    webp_output = ROOT / "public" / f"{basename}.webp"
 
     canvas = Image.new(
         "RGB",
-        (COLUMNS * CELL_SIZE, ROWS * CELL_SIZE),
+        (columns * CELL_SIZE, rows * CELL_SIZE),
         "#f5f0e5",
     )
 
-    for icon_index, filename in enumerate(NEW_CHARACTERS):
-        column = icon_index % COLUMNS
-        row = icon_index // COLUMNS
+    for icon_index, filename in enumerate(characters):
+        column = icon_index % columns
+        row = icon_index // columns
         with Image.open(character_dir / filename) as image:
             tile = ImageOps.fit(
                 image.convert("RGB"),
@@ -45,6 +57,11 @@ def main() -> None:
     canvas.save(webp_output, "WEBP", quality=88, method=6)
     print(f"wrote {png_output.relative_to(ROOT)} {canvas.size}")
     print(f"wrote {webp_output.relative_to(ROOT)}")
+
+
+def main() -> None:
+    build_sheet(NEW_CHARACTERS, COLUMNS, ROWS, "sort-characters-new")
+    build_sheet(EXTRA_CHARACTERS, 3, 3, "sort-characters-extra")
 
 
 if __name__ == "__main__":

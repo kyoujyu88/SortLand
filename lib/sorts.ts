@@ -10,6 +10,11 @@ type BeadSetup = {
   maxLevel: number;
 };
 
+type SlotSetup = {
+  title: string;
+  slotCount: number;
+};
+
 export type SortOperation =
   | { type: "compare"; indices: [number, number] }
   | { type: "swap"; indices: [number, number] }
@@ -19,6 +24,7 @@ export type SortOperation =
   | { type: "distribute"; index: number; value: number; bucket: number; setup?: DistributionSetup }
   | { type: "collect"; index: number; value: number; bucket: number }
   | { type: "drop"; row: number; value: number; level: number; setup?: BeadSetup }
+  | { type: "slotWrite"; slot: number; value: number | null; setup?: SlotSetup }
   | { type: "mergeStart"; left: number; mid: number; right: number; leftValues: number[]; rightValues: number[] }
   | { type: "mergeCompare"; leftIndex: number; rightIndex: number; leftValue: number; rightValue: number }
   | { type: "mergeTake"; index: number; value: number; source: "left" | "right"; sourceIndex: number };
@@ -34,6 +40,7 @@ type SortRecorder = {
   distribute: (index: number, value: number, bucket: number, setup?: DistributionSetup) => void;
   collect: (index: number, value: number, bucket: number) => void;
   drop: (row: number, value: number, level: number, setup?: BeadSetup) => void;
+  slotWrite: (slot: number, value: number | null, setup?: SlotSetup) => void;
   mergeStart: (left: number, mid: number, right: number, leftValues: number[], rightValues: number[]) => void;
   mergeCompare: (leftIndex: number, rightIndex: number, leftValue: number, rightValue: number) => void;
   mergeTake: (index: number, value: number, source: "left" | "right", sourceIndex: number) => void;
@@ -75,6 +82,9 @@ function createRecorder(input: number[]): SortRecorder {
     drop(row, value, level, setup) {
       array[row] = value;
       operations.push({ type: "drop", row, value, level, setup });
+    },
+    slotWrite(slot, value, setup) {
+      operations.push({ type: "slotWrite", slot, value, setup });
     },
     mergeStart(left, mid, right, leftValues, rightValues) {
       operations.push({
@@ -738,6 +748,418 @@ function treeSort(r: SortRecorder) {
   traverse(root);
 }
 
+type TrackedItem = { value: number; src: number };
+
+function librarySort(r: SortRecorder) {
+  const source: TrackedItem[] = r.array.map((value, src) => ({ value, src }));
+  const n = source.length;
+  if (n < 2) return;
+  const slotCount = n * 2;
+  let isFirstSlot = true;
+  const emitSlot = (slot: number, value: number | null) => {
+    r.slotWrite(slot, value, isFirstSlot ? { title: "すき間つきの本棚", slotCount } : undefined);
+    isFirstSlot = false;
+  };
+
+  const shelf: Array<TrackedItem & { slot: number }> = [];
+
+  const rebalance = () => {
+    shelf.forEach((item) => {
+      if (item.slot >= 0) emitSlot(item.slot, null);
+    });
+    shelf.forEach((item, index) => {
+      item.slot = Math.floor(((index + 1) * slotCount) / (shelf.length + 1));
+      emitSlot(item.slot, item.value);
+    });
+  };
+
+  source.forEach((current) => {
+    let low = 0;
+    let high = shelf.length;
+    while (low < high) {
+      const mid = (low + high) >> 1;
+      r.compare(shelf[mid].src, current.src);
+      if (shelf[mid].value <= current.value) low = mid + 1;
+      else high = mid;
+    }
+    const leftSlot = low > 0 ? shelf[low - 1].slot : -1;
+    const rightSlot = low < shelf.length ? shelf[low].slot : slotCount;
+    if (rightSlot - leftSlot > 1) {
+      const slot = leftSlot + Math.max(1, (rightSlot - leftSlot) >> 1);
+      shelf.splice(low, 0, { ...current, slot });
+      emitSlot(slot, current.value);
+    } else {
+      shelf.splice(low, 0, { ...current, slot: -1 });
+      rebalance();
+    }
+  });
+
+  shelf.forEach((item, index) => {
+    r.write(index, item.value);
+    emitSlot(item.slot, null);
+  });
+}
+
+function patienceSort(r: SortRecorder) {
+  const source: TrackedItem[] = r.array.map((value, src) => ({ value, src }));
+  const n = source.length;
+  if (!n) return;
+
+  const simulatedTops: number[] = [];
+  for (const { value } of source) {
+    let low = 0;
+    let high = simulatedTops.length;
+    while (low < high) {
+      const mid = (low + high) >> 1;
+      if (simulatedTops[mid] >= value) high = mid;
+      else low = mid + 1;
+    }
+    simulatedTops[low] = value;
+  }
+  const pileCount = simulatedTops.length;
+
+  const piles: TrackedItem[][] = Array.from({ length: pileCount }, () => []);
+  let activePiles = 0;
+  source.forEach((item, index) => {
+    let low = 0;
+    let high = activePiles;
+    while (low < high) {
+      const mid = (low + high) >> 1;
+      const top = piles[mid][piles[mid].length - 1];
+      r.compare(top.src, item.src);
+      if (top.value >= item.value) high = mid;
+      else low = mid + 1;
+    }
+    piles[low].push(item);
+    if (low === activePiles) activePiles++;
+    r.distribute(index, item.value, low, index === 0 ? {
+      title: "トランプの山札に配る",
+      labels: Array.from({ length: pileCount }, (_, pile) => `山${pile + 1}`),
+      outputSize: n,
+    } : undefined);
+  });
+
+  for (let output = 0; output < n; output++) {
+    let best = -1;
+    for (let pile = 0; pile < pileCount; pile++) {
+      if (!piles[pile].length) continue;
+      if (best < 0) {
+        best = pile;
+        continue;
+      }
+      const bestTop = piles[best][piles[best].length - 1];
+      const candidate = piles[pile][piles[pile].length - 1];
+      r.compare(bestTop.src, candidate.src);
+      if (candidate.value < bestTop.value) best = pile;
+    }
+    const item = piles[best].pop()!;
+    r.collect(output, item.value, best);
+  }
+}
+
+function dualPivotQuickSort(r: SortRecorder) {
+  const { array: a } = r;
+  function sort(low: number, high: number) {
+    if (low >= high) return;
+    r.compare(low, high);
+    if (a[low] > a[high]) r.swap(low, high);
+    const small = a[low];
+    const large = a[high];
+    let lt = low + 1;
+    let gt = high - 1;
+    let i = low + 1;
+    while (i <= gt) {
+      r.compare(i, low);
+      if (a[i] < small) {
+        r.swap(i, lt++);
+      } else {
+        r.compare(i, high);
+        if (a[i] > large) {
+          while (i < gt) {
+            r.compare(gt, high);
+            if (a[gt] > large) gt--;
+            else break;
+          }
+          r.swap(i, gt--);
+          r.compare(i, low);
+          if (a[i] < small) r.swap(i, lt++);
+        }
+      }
+      i++;
+    }
+    r.swap(low, --lt);
+    r.swap(high, ++gt);
+    sort(low, lt - 1);
+    sort(lt + 1, gt - 1);
+    sort(gt + 1, high);
+  }
+  sort(0, a.length - 1);
+}
+
+function smoothSort(r: SortRecorder) {
+  const { array: a } = r;
+  const n = a.length;
+  if (n < 2) return;
+  const leonardo = [1, 1];
+  while (leonardo[leonardo.length - 1] < n) {
+    leonardo.push(leonardo[leonardo.length - 1] + leonardo[leonardo.length - 2] + 1);
+  }
+
+  type Heap = { root: number; order: number };
+  const heaps: Heap[] = [];
+
+  const sift = (startRoot: number, startOrder: number) => {
+    let root = startRoot;
+    let order = startOrder;
+    while (order >= 2) {
+      const rightChild = root - 1;
+      const leftChild = root - 1 - leonardo[order - 2];
+      let next = root;
+      let nextOrder = order;
+      r.compare(next, leftChild);
+      if (a[leftChild] > a[next]) {
+        next = leftChild;
+        nextOrder = order - 1;
+      }
+      r.compare(next, rightChild);
+      if (a[rightChild] > a[next]) {
+        next = rightChild;
+        nextOrder = order - 2;
+      }
+      if (next === root) return;
+      r.swap(root, next);
+      root = next;
+      order = nextOrder;
+    }
+  };
+
+  const rectify = (startIndex: number) => {
+    let index = startIndex;
+    while (index > 0) {
+      const current = heaps[index];
+      const previous = heaps[index - 1];
+      r.compare(previous.root, current.root);
+      if (a[previous.root] <= a[current.root]) break;
+      if (current.order >= 2) {
+        const rightChild = current.root - 1;
+        const leftChild = current.root - 1 - leonardo[current.order - 2];
+        r.compare(previous.root, leftChild);
+        const beatsLeft = a[previous.root] > a[leftChild];
+        r.compare(previous.root, rightChild);
+        const beatsRight = a[previous.root] > a[rightChild];
+        if (!beatsLeft || !beatsRight) break;
+      }
+      r.swap(previous.root, current.root);
+      index--;
+    }
+    sift(heaps[index].root, heaps[index].order);
+  };
+
+  for (let i = 0; i < n; i++) {
+    const size = heaps.length;
+    if (size >= 2 && heaps[size - 2].order === heaps[size - 1].order + 1) {
+      const merged = { root: i, order: heaps[size - 2].order + 1 };
+      heaps.splice(size - 2, 2, merged);
+    } else if (size >= 1 && heaps[size - 1].order === 1) {
+      heaps.push({ root: i, order: 0 });
+    } else {
+      heaps.push({ root: i, order: 1 });
+    }
+    rectify(heaps.length - 1);
+  }
+
+  for (let i = n - 1; i >= 0; i--) {
+    const last = heaps.pop()!;
+    if (last.order >= 2) {
+      const leftRoot = last.root - 1 - leonardo[last.order - 2];
+      const rightRoot = last.root - 1;
+      heaps.push({ root: leftRoot, order: last.order - 1 });
+      rectify(heaps.length - 1);
+      heaps.push({ root: rightRoot, order: last.order - 2 });
+      rectify(heaps.length - 1);
+    }
+  }
+}
+
+function sleepSort(r: SortRecorder) {
+  const source = [...r.array];
+  if (!source.length) return;
+  const max = Math.max(...source);
+  let output = 0;
+  for (let tick = 1; tick <= max; tick++) {
+    source.forEach((value) => {
+      if (value === tick) r.write(output++, value);
+    });
+  }
+}
+
+function flashSort(r: SortRecorder) {
+  const { array: a } = r;
+  const n = a.length;
+  if (n < 2) return;
+  let min = a[0];
+  let maxIndex = 0;
+  for (let i = 1; i < n; i++) {
+    if (a[i] < min) min = a[i];
+    if (a[i] > a[maxIndex]) maxIndex = i;
+  }
+  if (a[maxIndex] === min) return;
+  const classCount = Math.max(2, Math.floor(0.43 * n));
+  const scale = (classCount - 1) / (a[maxIndex] - min);
+  const classOf = (value: number) => Math.floor(scale * (value - min));
+
+  const bounds = new Array(classCount).fill(0);
+  for (let i = 0; i < n; i++) {
+    const bucket = classOf(a[i]);
+    bounds[bucket]++;
+    r.count(i, a[i], bucket, i === 0 ? {
+      title: "クラス分けの度数表",
+      labels: Array.from({ length: classCount }, (_, index) => `C${index + 1}`),
+      outputSize: 0,
+    } : undefined);
+  }
+  for (let bucket = 1; bucket < classCount; bucket++) bounds[bucket] += bounds[bucket - 1];
+
+  r.swap(0, maxIndex);
+  let moved = 1;
+  let j = 0;
+  let bucket = classCount - 1;
+  while (moved < n) {
+    while (j > bounds[bucket] - 1) {
+      j++;
+      bucket = classOf(a[j]);
+    }
+    let flash = a[j];
+    while (j !== bounds[bucket]) {
+      bucket = classOf(flash);
+      const dest = bounds[bucket] - 1;
+      const hold = a[dest];
+      r.write(dest, flash);
+      flash = hold;
+      bounds[bucket]--;
+      moved++;
+    }
+  }
+  insertionRange(r, 0, n - 1);
+}
+
+function americanFlagSort(r: SortRecorder) {
+  const { array: a } = r;
+  if (a.length < 2) return;
+  const max = Math.max(...a);
+  let topExp = 1;
+  while (Math.floor(max / (topExp * 10)) > 0) topExp *= 10;
+
+  function sortRange(start: number, end: number, exp: number) {
+    if (end - start < 2 || exp < 1) return;
+    const digits = new Array(10).fill(0);
+    const placeLabel = exp === 1 ? "1の位" : `${exp}の位`;
+    for (let i = start; i < end; i++) {
+      const digit = Math.floor(a[i] / exp) % 10;
+      digits[digit]++;
+      r.count(i, a[i], digit, i === start ? {
+        title: `${placeLabel}で区分け`,
+        labels: Array.from({ length: 10 }, (_, index) => String(index)),
+        outputSize: 0,
+      } : undefined);
+    }
+    const offsets = new Array(10).fill(start);
+    for (let digit = 1; digit < 10; digit++) {
+      offsets[digit] = offsets[digit - 1] + digits[digit - 1];
+    }
+    const nextFree = [...offsets];
+    for (let digit = 0; digit < 10; digit++) {
+      const blockEnd = offsets[digit] + digits[digit];
+      while (nextFree[digit] < blockEnd) {
+        const i = nextFree[digit];
+        const actual = Math.floor(a[i] / exp) % 10;
+        if (actual === digit) nextFree[digit]++;
+        else {
+          r.swap(i, nextFree[actual]);
+          nextFree[actual]++;
+        }
+      }
+    }
+    for (let digit = 0; digit < 10; digit++) {
+      sortRange(offsets[digit], offsets[digit] + digits[digit], exp / 10);
+    }
+  }
+  sortRange(0, a.length, topExp);
+}
+
+function mergeInsertionSort(r: SortRecorder) {
+  const items: TrackedItem[] = r.array.map((value, src) => ({ value, src }));
+  const less = (x: TrackedItem, y: TrackedItem) => {
+    r.compare(x.src, y.src);
+    return x.value < y.value;
+  };
+
+  function sortRec(list: TrackedItem[]): TrackedItem[] {
+    if (list.length <= 1) return [...list];
+    const pairs: Array<{ hi: TrackedItem; lo: TrackedItem }> = [];
+    let leftover: TrackedItem | null = null;
+    for (let i = 0; i + 1 < list.length; i += 2) {
+      const left = list[i];
+      const right = list[i + 1];
+      pairs.push(less(left, right) ? { hi: right, lo: left } : { hi: left, lo: right });
+    }
+    if (list.length % 2) leftover = list[list.length - 1];
+
+    const sortedHighs = sortRec(pairs.map((pair) => pair.hi));
+    const partnerOf = new Map<TrackedItem, TrackedItem>();
+    pairs.forEach((pair) => partnerOf.set(pair.hi, pair.lo));
+
+    const chain: TrackedItem[] = [partnerOf.get(sortedHighs[0])!, ...sortedHighs];
+    const pending: Array<{ lo: TrackedItem; hi: TrackedItem | null }> = sortedHighs
+      .slice(1)
+      .map((hi) => ({ lo: partnerOf.get(hi)!, hi }));
+    if (leftover) pending.push({ lo: leftover, hi: null });
+
+    const insertionOrder: number[] = [];
+    let previousJacobsthal = 1;
+    let currentJacobsthal = 1;
+    let consumed = 0;
+    while (insertionOrder.length < pending.length) {
+      const next = currentJacobsthal + 2 * previousJacobsthal;
+      previousJacobsthal = currentJacobsthal;
+      currentJacobsthal = next;
+      const upper = Math.min(pending.length, next - 1);
+      for (let i = upper - 1; i >= consumed; i--) insertionOrder.push(i);
+      consumed = upper;
+    }
+
+    for (const pendingIndex of insertionOrder) {
+      const { lo, hi } = pending[pendingIndex];
+      const bound = hi ? chain.indexOf(hi) : chain.length;
+      let low = 0;
+      let high = bound;
+      while (low < high) {
+        const mid = (low + high) >> 1;
+        if (less(lo, chain[mid])) high = mid;
+        else low = mid + 1;
+      }
+      chain.splice(low, 0, lo);
+    }
+    return chain;
+  }
+
+  sortRec(items).forEach((item, index) => r.write(index, item.value));
+}
+
+function slowSort(r: SortRecorder) {
+  const { array: a } = r;
+  function sort(left: number, right: number) {
+    if (left >= right) return;
+    const mid = Math.floor((left + right) / 2);
+    sort(left, mid);
+    sort(mid + 1, right);
+    r.compare(mid, right);
+    if (a[right] < a[mid]) r.swap(mid, right);
+    sort(left, right - 1);
+  }
+  sort(0, a.length - 1);
+}
+
 export function buildSortOperations(id: string, input: number[]): SortOperation[] {
   const recorder = createRecorder(input);
   const algorithms: Record<string, (r: SortRecorder) => void> = {
@@ -767,6 +1189,15 @@ export function buildSortOperations(id: string, input: number[]): SortOperation[
     bead: beadSort,
     tournament: tournamentSort,
     tree: treeSort,
+    library: librarySort,
+    patience: patienceSort,
+    dualPivot: dualPivotQuickSort,
+    smooth: smoothSort,
+    sleep: sleepSort,
+    flash: flashSort,
+    americanFlag: americanFlagSort,
+    mergeInsertion: mergeInsertionSort,
+    slow: slowSort,
   };
   (algorithms[id] ?? bubbleSort)(recorder);
   return recorder.operations;
