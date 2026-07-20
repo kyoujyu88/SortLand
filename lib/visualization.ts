@@ -7,8 +7,13 @@ function moveValue(slots: GraphValue[], index: number, value: number) {
   const source = slots.findIndex((candidate, candidateIndex) => (
     candidateIndex !== index && candidate === value
   ));
+  // 書き込み先に別の棒があるなら、それを移動元スロットへ退避させる。
+  // 単純に null で消すと、補助構造から整列済みの値を書き戻すソート
+  // (sleep / tournament / tree など) で、まだ処理前の棒が上書きで消えて
+  // しまい「棒が消える」ように見えるため、位置の入れ替えとして扱う。
+  const displaced = slots[index];
   slots[index] = value;
-  if (source >= 0) slots[source] = null;
+  if (source >= 0) slots[source] = displaced ?? null;
 }
 
 export function projectGraphOperation(
