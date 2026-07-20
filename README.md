@@ -100,13 +100,11 @@ app/
 lib/
   algorithms.ts     # キャラクター情報とアルゴリズム解説
   completion.ts     # 完了スイープのタイミングと音階
-  explanations.ts   # 26種類の詳しい学習ガイド
-  sorts.ts          # 26種類のソートと可視化操作列
+  explanations.ts   # 35種類の詳しい学習ガイド
+  sorts.ts          # 35種類のソートと可視化操作列
   visualization.ts  # 操作列を重複のない棒グラフへ投影
 public/
-  sort-characters.webp
-  sort-characters-new.webp
-  sort-characters-extra.webp
+  characters/       # 35種類それぞれの個別キャラクター画像
   og.png
 tests/
   sorts.test.mjs    # 正当性・回帰テスト
@@ -114,4 +112,6 @@ tests/
 
 ## デザイン
 
-キャラクターは全35体をSortLand専用に制作しています。追加されたNo.27〜35も既存キャラクターと同じやわらかなアニメ調で統一し、本棚のすき間、カードの山、2本のピボット、レオナルド数ヒープ、目覚まし時計など、それぞれのアルゴリズム固有の考え方を小物やポーズへ反映しています。キャラクター画像から公開用スプライトを再生成するときは `scripts/build_character_sprite.py` を使用します。
+キャラクターは全35体をSortLand専用に新しく描き起こしています。ボゴソートだけはサイコロで偶然に賭ける親しみやすいゴリラ、ほかの34種類は女の子です。隣接交換、2本のピボット、空きを残した本棚、レオナルドヒープなど、それぞれのアルゴリズム固有の考え方を小物やポーズへ反映しています。
+
+画像はスプライトへまとめず、`public/characters/<algorithm-id>.webp` の個別ファイルとして配信します。選択カードと大きなキャラクター表示が同じ1枚を参照するため、追加・差し替え時に別のキャラクターが混ざりません。
