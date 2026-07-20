@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ALGORITHMS, CATEGORY_LABELS, type Algorithm, type AlgorithmCategory } from "@/lib/algorithms";
 import { buildPianoSweep, getCompletionSweepTiming } from "@/lib/completion";
@@ -123,25 +124,20 @@ function normalizeCountForAlgorithm(value: number, algorithm: Algorithm) {
 }
 
 function CharacterIcon({ algorithm, size = "small" }: { algorithm: Algorithm; size?: "small" | "large" }) {
-  const roster = algorithm.icon < 20
-    ? { file: "sort-characters.webp", columns: 5, rows: 4, offset: 0 }
-    : algorithm.icon < 26
-      ? { file: "sort-characters-new.webp", columns: 3, rows: 2, offset: 20 }
-      : { file: "sort-characters-extra.webp", columns: 3, rows: 3, offset: 26 };
-  const { columns, rows } = roster;
-  const localIcon = algorithm.icon - roster.offset;
-  const column = localIcon % columns;
-  const row = Math.floor(localIcon / columns);
   return (
     <span
       aria-hidden="true"
       className={`character-icon character-icon--${size}`}
-      style={{
-        backgroundImage: `url(${BASE_PATH}/${roster.file})`,
-        backgroundPosition: `${column * (100 / (columns - 1))}% ${row * (100 / (rows - 1))}%`,
-        backgroundSize: `${columns * 100}% ${rows * 100}%`,
-      }}
-    />
+    >
+      <Image
+        alt=""
+        decoding="async"
+        height={768}
+        loading={size === "large" ? "eager" : "lazy"}
+        src={`${BASE_PATH}/characters/${algorithm.id}.webp`}
+        width={768}
+      />
+    </span>
   );
 }
 

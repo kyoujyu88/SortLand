@@ -292,10 +292,16 @@ input:focus-visible {
 .character-card.is-selected::after { opacity: 1; }
 
 .character-icon {
-  background-repeat: no-repeat;
-  background-size: 500% 400%;
   display: block;
   flex: 0 0 auto;
+  overflow: hidden;
+}
+
+.character-icon img {
+  display: block;
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
 }
 
 .character-icon--small {

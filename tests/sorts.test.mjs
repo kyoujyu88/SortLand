@@ -252,15 +252,16 @@ test("every algorithm has a complete detailed learning guide", () => {
 });
 
 test("the product contains the complete character roster and GitHub Pages workflow", async () => {
-  const [algorithms, workflow, page, lab, styles, newCharacters, extraCharacters] = await Promise.all([
+  const [algorithms, workflow, page, lab, styles] = await Promise.all([
     readFile(new URL("../lib/algorithms.ts", import.meta.url), "utf8"),
     readFile(new URL("../.github/workflows/deploy-pages.yml", import.meta.url), "utf8"),
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/SortLab.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
-    readFile(new URL("../public/sort-characters-new.webp", import.meta.url)),
-    readFile(new URL("../public/sort-characters-extra.webp", import.meta.url)),
   ]);
+  const characterImages = await Promise.all(
+    algorithmIds.map((id) => readFile(new URL(`../public/characters/${id}.webp`, import.meta.url))),
+  );
   assert.equal((algorithms.match(/id: "/g) ?? []).length, 35);
   assert.equal(algorithmIds.length, 35);
   assert.match(workflow, /actions\/deploy-pages@v4/);
@@ -271,8 +272,8 @@ test("the product contains the complete character roster and GitHub Pages workfl
   assert.match(lab, /playCompletionSweep/);
   assert.match(lab, /strikePianoKey/);
   assert.match(lab, /strikeSteelPan/);
-  assert.match(lab, /sort-characters-new\.webp/);
-  assert.match(lab, /sort-characters-extra\.webp/);
+  assert.match(lab, /characters\/\$\{algorithm\.id\}\.webp/);
+  assert.doesNotMatch(lab, /sort-characters(?:-new|-extra)?\.webp/);
   assert.match(styles, /\.slot-shelf\s*\{/);
   assert.match(lab, /allowedCounts/);
   assert.match(lab, /詳しい解説を見る/);
@@ -288,7 +289,10 @@ test("the product contains the complete character roster and GitHub Pages workfl
   assert.match(styles, /\.merge-buffers\s*\{/);
   assert.match(styles, /\.main-chain\s*\{/);
   assert.match(styles, /\.character-icon\s*\{[^}]*display:\s*block/s);
+  assert.match(styles, /\.character-icon img\s*\{[^}]*object-fit:\s*cover/s);
   assert.match(styles, /grid-template-columns:\s*minmax\(0, 1fr\) 100px/);
-  assert.ok(newCharacters.byteLength > 50_000);
-  assert.ok(extraCharacters.byteLength > 20_000);
+  assert.equal(characterImages.length, 35);
+  for (const [index, image] of characterImages.entries()) {
+    assert.ok(image.byteLength > 40_000, `${algorithmIds[index]} should have a complete individual portrait`);
+  }
 });
