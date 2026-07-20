@@ -49,6 +49,13 @@ type BeadAuxiliary = {
   level: number;
 };
 
+type SlotAuxiliary = {
+  kind: "slots";
+  title: string;
+  slots: Array<number | null>;
+  activeSlot: number;
+};
+
 type MergeAuxiliary = {
   kind: "merge";
   title: string;
@@ -63,7 +70,7 @@ type MergeAuxiliary = {
   activeRight: number | null;
 };
 
-type AuxiliaryState = CountAuxiliary | BucketAuxiliary | BeadAuxiliary | MergeAuxiliary;
+type AuxiliaryState = CountAuxiliary | BucketAuxiliary | BeadAuxiliary | SlotAuxiliary | MergeAuxiliary;
 
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 
@@ -108,10 +115,13 @@ function normalizeCountForAlgorithm(value: number, algorithm: Algorithm) {
 }
 
 function CharacterIcon({ algorithm, size = "small" }: { algorithm: Algorithm; size?: "small" | "large" }) {
-  const isOriginalRoster = algorithm.icon < 20;
-  const localIcon = isOriginalRoster ? algorithm.icon : algorithm.icon - 20;
-  const columns = isOriginalRoster ? 5 : 3;
-  const rows = isOriginalRoster ? 4 : 2;
+  const roster = algorithm.icon < 20
+    ? { file: "sort-characters.webp", columns: 5, rows: 4, offset: 0 }
+    : algorithm.icon < 26
+      ? { file: "sort-characters-new.webp", columns: 3, rows: 2, offset: 20 }
+      : { file: "sort-characters-extra.webp", columns: 3, rows: 3, offset: 26 };
+  const { columns, rows } = roster;
+  const localIcon = algorithm.icon - roster.offset;
   const column = localIcon % columns;
   const row = Math.floor(localIcon / columns);
   return (
@@ -119,7 +129,7 @@ function CharacterIcon({ algorithm, size = "small" }: { algorithm: Algorithm; si
       aria-hidden="true"
       className={`character-icon character-icon--${size}`}
       style={{
-        backgroundImage: `url(${BASE_PATH}/${isOriginalRoster ? "sort-characters.webp" : "sort-characters-new.webp"})`,
+        backgroundImage: `url(${BASE_PATH}/${roster.file})`,
         backgroundPosition: `${column * (100 / (columns - 1))}% ${row * (100 / (rows - 1))}%`,
         backgroundSize: `${columns * 100}% ${rows * 100}%`,
       }}
@@ -150,7 +160,9 @@ function AuxiliaryPanel({ state }: { state: AuxiliaryState }) {
               ? isCollecting ? "バケットから回収中" : "対応する場所へ振り分け中"
               : state.kind === "beads"
                 ? `レベル ${state.level} / ${state.maxLevel}`
-                : `区間 ${state.left + 1}〜${state.right + 1} を結合中`}
+                : state.kind === "slots"
+                  ? "すき間を保ちながら挿入中"
+                  : `区間 ${state.left + 1}〜${state.right + 1} を結合中`}
         </small>
       </header>
 
@@ -192,6 +204,21 @@ function AuxiliaryPanel({ state }: { state: AuxiliaryState }) {
         </div>
       )}
 
+      {state.kind === "slots" && (
+        <div className="auxiliary-scroll">
+          <div className="slot-shelf">
+            {state.slots.map((value, index) => (
+              <div
+                className={`${index === state.activeSlot ? "is-active" : ""} ${value === null ? "is-empty" : ""}`}
+                key={index}
+              >
+                <strong>{value ?? "·"}</strong>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {state.kind === "merge" && (
         <div className="merge-buffers">
           <div>
@@ -219,7 +246,7 @@ function AuxiliaryPanel({ state }: { state: AuxiliaryState }) {
         </div>
       )}
 
-      {state.kind !== "beads" && (
+      {state.kind !== "beads" && state.kind !== "slots" && (
         <div className="output-buffer">
           <span>OUTPUT</span>
           <div>
@@ -551,6 +578,24 @@ export default function SortLab() {
         heights[operation.row] = operation.value;
         return { ...base, heights, activeRow: operation.row, level: operation.level };
       });
+    } else if (operation.type === "slotWrite") {
+      setActive([]);
+      toneValue = operation.value ?? 1;
+      setMetrics((current) => ({ ...current, moves: current.moves + 1 }));
+      setAuxiliary((current) => {
+        const base: SlotAuxiliary | null = operation.setup
+          ? {
+              kind: "slots",
+              title: operation.setup.title,
+              slots: new Array(operation.setup.slotCount).fill(null),
+              activeSlot: operation.slot,
+            }
+          : current?.kind === "slots" ? current : null;
+        if (!base) return current;
+        const slots = [...base.slots];
+        slots[operation.slot] = operation.value;
+        return { ...base, slots, activeSlot: operation.slot };
+      });
     } else if (operation.type === "mergeStart") {
       setActive([]);
       toneValue = operation.leftValues[0] ?? operation.rightValues[0] ?? 1;
@@ -764,9 +809,17 @@ export default function SortLab() {
       ? { firstLabel: "振り分け", firstValue: metrics.distributions, secondLabel: "回収", secondValue: metrics.collections }
       : algorithm.id === "bead"
         ? { firstLabel: "ビーズ落下", firstValue: metrics.drops, secondLabel: "段", secondValue: metrics.levels }
-        : { firstLabel: "比較", firstValue: metrics.comparisons, secondLabel: "移動", secondValue: metrics.moves };
-  const auxiliaryActionLabel = algorithm.id === "counting" ? "カウント"
+        : algorithm.id === "patience"
+          ? { firstLabel: "比較", firstValue: metrics.comparisons, secondLabel: "回収", secondValue: metrics.collections }
+          : algorithm.id === "flash" || algorithm.id === "americanFlag"
+            ? { firstLabel: "カウント", firstValue: metrics.counts, secondLabel: "移動", secondValue: metrics.moves }
+            : { firstLabel: "比較", firstValue: metrics.comparisons, secondLabel: "移動", secondValue: metrics.moves };
+  const auxiliaryActionLabel = ["counting", "flash", "americanFlag"].includes(algorithm.id) ? "カウント"
     : algorithm.id === "bead" ? "落下" : "振り分け";
+  const legendShowsAux = algorithm.category === "linear" || algorithm.id === "patience";
+  const legendShowsCollect = ["counting", "radix", "bucket", "patience"].includes(algorithm.id);
+  const legendShowsCompare = !["counting", "radix", "bucket", "bead", "americanFlag", "sleep"].includes(algorithm.id);
+  const legendShowsMove = !["counting", "radix", "bucket", "bead", "patience"].includes(algorithm.id);
   const statusLabel = status === "running" ? "ソート中" : status === "paused" ? "一時停止" : status === "done" ? "完了" : "準備OK";
   const allowedCounts = algorithm.allowedN;
   const currentMax = allowedCounts?.at(-1) ?? algorithm.maxN ?? 160;
@@ -783,7 +836,7 @@ export default function SortLab() {
         </a>
         <div className="topbar-copy">
           <span className="live-dot" />
-          26組のソートキャラクターと、並び替えを観察しよう
+          35組のソートキャラクターと、並び替えを観察しよう
         </div>
         <a className="github-link" href="https://github.com/kyoujyu88/SortLand" target="_blank" rel="noreferrer" aria-label="SortLandのGitHubリポジトリを開く">
           <span aria-hidden="true">↗</span> GitHub Pages Ready
@@ -847,17 +900,10 @@ export default function SortLab() {
               </div>
               <div className="legend" aria-label="色の凡例">
                 <span><i className="legend-normal" />未処理</span>
-                {algorithm.category === "linear" ? (
-                  <>
-                    <span><i className="legend-auxiliary" />{auxiliaryActionLabel}</span>
-                    {algorithm.id !== "bead" && <span><i className="legend-collect" />回収</span>}
-                  </>
-                ) : (
-                  <>
-                    <span><i className="legend-compare" />比較</span>
-                    <span><i className="legend-move" />交換・配置</span>
-                  </>
-                )}
+                {legendShowsAux && <span><i className="legend-auxiliary" />{auxiliaryActionLabel}</span>}
+                {legendShowsCollect && <span><i className="legend-collect" />回収</span>}
+                {legendShowsCompare && <span><i className="legend-compare" />比較</span>}
+                {legendShowsMove && <span><i className="legend-move" />交換・配置</span>}
               </div>
             </div>
 
@@ -1011,7 +1057,7 @@ export default function SortLab() {
         </section>
       </div>
 
-      <footer><span>SORTLAND</span><p>目で見て、耳で聴いて、アルゴリズムを好きになる。</p><small>26 ALGORITHMS · 100% STATIC · GITHUB PAGES</small></footer>
+      <footer><span>SORTLAND</span><p>目で見て、耳で聴いて、アルゴリズムを好きになる。</p><small>35 ALGORITHMS · 100% STATIC · GITHUB PAGES</small></footer>
     </main>
   );
 }

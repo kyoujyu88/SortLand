@@ -11,6 +11,8 @@ const algorithmIds = [
   "counting", "radix", "cocktail", "comb", "gnome", "oddEven", "cycle",
   "pancake", "bucket", "tim", "strand", "stooge", "intro", "bogo",
   "bitonic", "circle", "bead", "tournament", "tree",
+  "library", "patience", "dualPivot", "smooth", "sleep", "flash",
+  "americanFlag", "mergeInsertion", "slow",
 ];
 
 function applyOperations(input, operations) {
@@ -35,7 +37,7 @@ function applyOperations(input, operations) {
   return values;
 }
 
-test("all 26 visualizers produce a sorted result", () => {
+test("all 35 visualizers produce a sorted result", () => {
   for (const id of algorithmIds) {
     const size = id === "stooge" ? 14 : id === "bogo" ? 6 : 32;
     const input = Array.from({ length: size }, (_, i) => ((i * 17 + 11) % size) + 1);
@@ -69,6 +71,76 @@ test("the six new visualizers handle their supported shapes and limits", () => {
       }
     }
   }
+});
+
+test("the nine expansion visualizers handle their supported shapes and limits", () => {
+  const cases = {
+    library: [8, 20, 40],
+    patience: [8, 19, 37],
+    dualPivot: [8, 20, 37],
+    smooth: [8, 21, 40],
+    sleep: [8, 20, 36],
+    flash: [8, 19, 37],
+    americanFlag: [8, 20, 40],
+    mergeInsertion: [8, 19, 36],
+    slow: [8, 16, 24],
+  };
+
+  for (const [id, sizes] of Object.entries(cases)) {
+    for (const size of sizes) {
+      const ordered = Array.from({ length: size }, (_, index) => index + 1);
+      const input = ordered.slice(3).concat(ordered.slice(0, 3)).reverse();
+      const operations = buildSortOperations(id, input);
+      assert.deepEqual(applyOperations(input, operations), ordered, `${id} should sort n=${size}`);
+    }
+  }
+});
+
+test("the expansion sorts expose their signature operations", () => {
+  const size = 32;
+  const input = Array.from({ length: size }, (_, index) => ((index * 17 + 11) % size) + 1);
+  const operationsOf = (id) => buildSortOperations(id, input);
+
+  const library = operationsOf("library");
+  const slotWrites = library.filter((operation) => operation.type === "slotWrite");
+  assert.ok(slotWrites.length >= size, "library should show its gapped shelf activity");
+  assert.ok(slotWrites[0].setup, "library should announce the shelf workspace");
+  assert.equal(slotWrites[0].setup.slotCount, size * 2);
+
+  const patience = operationsOf("patience").map((operation) => operation.type);
+  assert.equal(patience.filter((type) => type === "distribute").length, size);
+  assert.equal(patience.filter((type) => type === "collect").length, size);
+  assert.ok(!patience.includes("write"), "patience should not hide pile work behind generic writes");
+
+  const sleep = operationsOf("sleep");
+  assert.equal(sleep.length, size);
+  assert.ok(sleep.every((operation) => operation.type === "write"), "sleep should wake values without comparing");
+
+  const americanFlag = operationsOf("americanFlag").map((operation) => operation.type);
+  assert.ok(americanFlag.includes("count"), "american flag should count digit histograms");
+  assert.ok(americanFlag.includes("swap"), "american flag should permute in place");
+  assert.ok(!americanFlag.includes("compare"), "american flag should remain non-comparison");
+
+  const flash = operationsOf("flash").map((operation) => operation.type);
+  assert.ok(flash.includes("count"), "flash should build its class table");
+  assert.ok(flash.includes("write"), "flash should move values in long cycles");
+
+  const countComparisons = (id) => operationsOf(id)
+    .filter((operation) => operation.type === "compare" || operation.type === "mergeCompare").length;
+  assert.ok(
+    countComparisons("mergeInsertion") <= size * Math.log2(size),
+    "merge-insertion should stay close to the comparison lower bound",
+  );
+
+  const sortedInput = Array.from({ length: size }, (_, index) => index + 1);
+  const smoothSorted = buildSortOperations("smooth", sortedInput).length;
+  const smoothReversed = buildSortOperations("smooth", [...sortedInput].reverse()).length;
+  assert.ok(smoothSorted < smoothReversed, "smooth should adapt to presorted input");
+
+  assert.ok(
+    operationsOf("slow").length > size * size,
+    "slow should be observably wasteful",
+  );
 });
 
 test("all graph projections stay unambiguous and finish sorted", () => {
@@ -169,16 +241,17 @@ test("every algorithm has a complete detailed learning guide", () => {
 });
 
 test("the product contains the complete character roster and GitHub Pages workflow", async () => {
-  const [algorithms, workflow, page, lab, styles, newCharacters] = await Promise.all([
+  const [algorithms, workflow, page, lab, styles, newCharacters, extraCharacters] = await Promise.all([
     readFile(new URL("../lib/algorithms.ts", import.meta.url), "utf8"),
     readFile(new URL("../.github/workflows/deploy-pages.yml", import.meta.url), "utf8"),
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/SortLab.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
     readFile(new URL("../public/sort-characters-new.webp", import.meta.url)),
+    readFile(new URL("../public/sort-characters-extra.webp", import.meta.url)),
   ]);
-  assert.equal((algorithms.match(/id: "/g) ?? []).length, 26);
-  assert.equal(algorithmIds.length, 26);
+  assert.equal((algorithms.match(/id: "/g) ?? []).length, 35);
+  assert.equal(algorithmIds.length, 35);
   assert.match(workflow, /actions\/deploy-pages@v4/);
   assert.match(page, /SortLab/);
   assert.doesNotMatch(page, /codex-preview|SkeletonPreview/);
@@ -188,6 +261,8 @@ test("the product contains the complete character roster and GitHub Pages workfl
   assert.match(lab, /strikePianoKey/);
   assert.match(lab, /strikeSteelPan/);
   assert.match(lab, /sort-characters-new\.webp/);
+  assert.match(lab, /sort-characters-extra\.webp/);
+  assert.match(styles, /\.slot-shelf\s*\{/);
   assert.match(lab, /allowedCounts/);
   assert.match(lab, /詳しい解説を見る/);
   assert.match(lab, /aria-expanded=\{isDetailsOpen\}/);
@@ -202,4 +277,5 @@ test("the product contains the complete character roster and GitHub Pages workfl
   assert.match(styles, /\.character-icon\s*\{[^}]*display:\s*block/s);
   assert.match(styles, /grid-template-columns:\s*minmax\(0, 1fr\) 100px/);
   assert.ok(newCharacters.byteLength > 50_000);
+  assert.ok(extraCharacters.byteLength > 20_000);
 });

@@ -1747,6 +1747,46 @@ footer > span {
   margin-top: 5px;
 }
 
+.slot-shelf {
+  display: grid;
+  gap: 4px;
+  grid-auto-columns: 30px;
+  grid-auto-flow: column;
+  min-width: max-content;
+}
+
+.slot-shelf > div {
+  background: #fff;
+  border: 1px solid rgba(89, 96, 86, 0.12);
+  border-radius: 7px;
+  min-height: 34px;
+  padding: 8px 3px;
+  text-align: center;
+  transition: 120ms ease;
+}
+
+.slot-shelf > div.is-empty {
+  background: rgba(255, 255, 255, 0.45);
+  border-style: dashed;
+}
+
+.slot-shelf > div.is-active {
+  background: #f4ecdd;
+  border-color: rgba(169, 130, 94, 0.55);
+  transform: translateY(-2px);
+}
+
+.slot-shelf strong {
+  color: #8a6f50;
+  display: block;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+}
+
+.slot-shelf > div.is-empty strong {
+  color: #c4bfb2;
+}
+
 .bucket-rack {
   display: grid;
   gap: 7px;
